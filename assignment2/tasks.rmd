@@ -8,6 +8,7 @@ output:
 ```{r include = FALSE}
 # Disable inclusion of code chunks in the output
 knitr::opts_chunk$set(echo = FALSE)
+library('ggplot2')
 ```
 
 
@@ -75,7 +76,10 @@ solve({
 );
 ```
 
-
+Which results in
+```
+{y0 = 0.8400000000, y1 = 0.6720000000, y2 = 0.4576000000}
+```
 
 
 ## Simulation 10
@@ -108,39 +112,110 @@ X_sim <- replicate(n_sim, {
 
 
 # Plot all simulations
-plot.ts(X_sim)
+# plot.ts(X_sim)
+# Plot all simulations
+
+sim_plot <- ggplot(mapping = aes(x = seq(1, n_obs))) +
+  labs(x = "Time", y = "X")
+
+for (i in seq(1, n_sim)) {
+  sim_plot <- local({
+    j <- i
+    sim_plot +
+      geom_line(aes(y = X_sim[, j]), stat = "identity", alpha = 0.9, col = j)
+      # + geom_point(aes(y = X_sim[, j]), stat = "identity", alpha = 0.3, col = j)
+  })
+}
+
+sim_plot
 ```
 
 ## ACF
 ```{R}
-n_lag <- 20
+n_lag <- 40
 
+# Empirical ACF
 acf_matrix <- matrix(0, nrow = n_lag+1, ncol = n_sim)
 for (i in seq(1, n_sim)) {
-  acf_matrix[, i] <- acf(X_sim[, i], lag.max = n_lag, type = c("covariance"), plot = FALSE)$acf
+  acf_matrix[, i] <- acf(X_sim[, i], lag.max = n_lag, type = c("correlation"), plot = FALSE)$acf
 }
 
-acf_mean <- apply(acf_matrix, 1, mean)
-barplot(acf_mean ~ seq(0, n_lag), main = "ACF", xlab = "Lag", ylab = "ACF")
+# Theoretical ACF
+acf_theo <- rep(0, n_lag + 1)
+acf_theo[1] <- 0.84
+acf_theo[2] <- 0.672
+acf_theo[3] <- 0.4576
+for (k in seq(3, n_lag)) {
+  acf_theo[k + 1] <- -phi[1] * acf_theo[k]
+}
 
-plot.ts(acf_matrix, main = "ACF", xlab = "Lag", ylab = "ACF")
+acf_theo <- acf_theo / acf_theo[1]
+
+
+# Plot
+# NOTE: Significance level from 
+acf_sig_level <- qnorm((1 + 0.95) / 2) / sqrt(sum(!is.na(X_sim[, 1])))
+
+
+acf_plot <- ggplot(mapping = aes(x = seq(0, n_lag)))
+
+for (i in seq(1, n_sim)) {
+  acf_plot <- local({
+    j <- i
+    acf_plot +
+      geom_line(aes(y = acf_matrix[, j]), stat = "identity", alpha = 0.2, col = j) +
+      geom_point(aes(y = acf_matrix[, j]), stat = "identity", alpha = 0.3, col = j)
+  })
+}
+
+acf_plot <- acf_plot +
+  geom_hline(yintercept = acf_sig_level, linetype = "dotted") +
+  geom_hline(yintercept = -acf_sig_level, linetype = "dotted") + 
+  geom_line(aes(y = acf_theo), stat = "identity", color = "blue") +
+  geom_point(aes(y = acf_theo), stat = "identity", color = "blue") +
+  labs(title = "ACF", x = "Lag", y = "ACF")
+
+acf_plot
 ```
 
 ## PACF
 ```{R}
 pacf_matrix <- matrix(0, nrow = n_lag, ncol = n_sim)
 for (i in seq(1, n_sim)) {
-  pacf_matrix[, i] <- pacf(X_sim[, i], lag.max = n_lag, type = c("covariance"), plot = FALSE)$acf
+  pacf_matrix[, i] <- pacf(X_sim[, i], lag.max = n_lag, type = c("correlation"), plot = FALSE)$acf
 }
 
-pacf_mean <- apply(pacf_matrix, 1, mean)
-barplot(pacf_mean ~ seq(1, n_lag), main = "PACF", xlab = "Lag", ylab = "PACF")
+
+pacf_plot <- ggplot(mapping = aes(x = seq(1, n_lag)))
+
+for (i in seq(1, n_sim)) {
+  pacf_plot <- local({
+    j <- i
+    pacf_plot +
+      geom_line(aes(y = pacf_matrix[, j]), stat = "identity", col = j) +
+      geom_point(aes(y = pacf_matrix[, j]), stat = "identity", col = j)
+  })
+}
+
+pacf_plot <- pacf_plot +
+  geom_hline(yintercept = acf_sig_level, linetype = "dotted") +
+  geom_hline(yintercept = -acf_sig_level, linetype = "dotted") + 
+  labs(title = "PACF", x = "Lag", y = "PACF")
+
+pacf_plot
 ```
 
 ## Variance
 ```{R}
-X_sim_var <- apply(X_sim, 1, var)
-barplot(X_sim_var, main = "Variance", xlab = "Time", ylab = "Variance")
+X_sim_var <- apply(X_sim, 2, var)
+
+var_plot <- ggplot(mapping = aes(x = seq(1, n_sim), y = X_sim_var)) +
+  geom_bar(stat = "identity", fill = 1:n_sim) +
+  geom_hline(yintercept = 0.84, col = "blue") +
+  geom_hline(yintercept = mean(X_sim_var), linetype = "dotted") +
+  labs(title = "Variance", x = "Simulation", y = "Variance")
+
+var_plot
 ```
 
 
@@ -148,5 +223,6 @@ barplot(X_sim_var, main = "Variance", xlab = "Time", ylab = "Variance")
 
 
 # 2
+
 
 # 3
