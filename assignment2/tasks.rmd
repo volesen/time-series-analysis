@@ -8,11 +8,13 @@ output:
 ```{r include = FALSE}
 # Disable inclusion of code chunks in the output
 knitr::opts_chunk$set(echo = FALSE)
-library('ggplot2')
+library("ggplot2")
+
+set.seed(1337)
 ```
 
 
-# 1
+# First
 
 ## Stationary and non-invertible
 Roots of $\theta(z^-1)$ are around $0.412$ and $-1.212$. Not invertible.
@@ -222,7 +224,90 @@ var_plot
 ## Discussion
 
 
-# 2
+# Second
+## Prediction
+All the previous $X_i$ and $\epsilon_i$ are known for $i \leq t$, 
+and we want to predict $X_{t+1}$ and $X_{t+2}$. 
 
+The optimal prediction via (eq. 5.155) is the mean, 
+and the variance is purely determined by $\epsilon_{t+1}$, as everything else is known.
+Note that $d = 0$ so (eq. 5.155) is directly applicable.
+
+\begin{align*}
+  X_{t+1} &= -\phi_1 X_{t} - \phi_2 X_{t-1} - \phi_4 X_{t-3} - \phi_5 X_{t-4} - \phi_6 X_{t-5}\\
+    &+ \epsilon_{t+1} + \Theta_1 \epsilon_{t-3}\\
+\end{align*}
+
+
+The prediction can be found like before via (eq. 5.155). 
+The variance is found by taking the variance on both sides.
+There will be a contribution from $\hat{X}_{t+1}$, and $\epsilon_{t+2}$.
+
+\begin{align*}
+  \hat{X}_{t+2} &= -\phi_1 \hat{X}_{t+1} - \phi_2 X_{t} - \phi_4 X_{t-2} - \phi_5 X_{t-3} - \phi_6 X_{t-4}\\
+    &+ \epsilon_{t+2} + \Theta_1 \epsilon_{t-2}\\
+\end{align*}
+
+
+
+```{R}
+# Load A2_sales.txt data
+sales <- read.table("A2_sales.txt", header = TRUE, sep = " ")
+mu <- 2070
+sigma <- sqrt(36963)
+
+phi <- c(-1.04, 0.2, 0, -0.86, 1.04*0.86, -0.2*0.86)
+p <- length(phi)
+theta_4 <- -0.42
+
+# NOTE: Last entry is to simplify loop
+y_true <- c(rep(mu, p), sales$Sales, 999999999999999)
+# NOTE: Adding 1 for the t+1 prediction
+y_pred <- rep(0, length(sales$Sales) + p + 1)
+eps <- rep(0, length(sales$Sales) + p + 1)
+
+for (i in (p+1):length(y_pred)) {
+    y_pred[i] <- sum(-phi * rev(y_true[(i - p):(i - 1)]-mu)) + theta_4 * eps[i - 4] + mu
+    # NOTE: The last eps calculation is invalid as it makes use of unseen data.
+    eps[i] <- y_true[i] - y_pred[i]
+}
+
+
+# Make vectors valid again and make final predictions
+y_pred <- y_pred[(p+1):length(y_pred)]
+y_pred_var <- rep(sigma^2, length(y_pred))
+eps <- eps[(p+1):(length(eps)-1)]
+
+y_pred_2 <- sum(-phi * (c(tail(y_pred, n = 1), rev(tail(sales$Sales, n = p - 1))) - mu)) + theta_4 * eps[length(eps) - 2] + mu
+y_pred_2_var <- phi[1]^2 * sigma^2 + sigma^2
+
+y_pred <- c(y_pred, y_pred_2)
+y_pred_var <- c(y_pred_var, y_pred_2_var)
+
+y_pred_quantile <- qnorm(c(0.025, 0.975))
+y_pred_conf_upper <- y_pred + y_pred_quantile[2] * sqrt(y_pred_var)
+y_pred_conf_lower <- y_pred + y_pred_quantile[1] * sqrt(y_pred_var)
+```
+
+## Plotting
+```{r}
+pred_axis_seq <- seq(1, length(y_pred), 4)
+pred_axis <- c(sales$Quarter, "2019K1", "2019K2")[pred_axis_seq]
+y_pred_seq <- seq_along(y_pred)
+y_true_seq <- seq_along(sales$Sales)
+
+# Plot predictions and true values
+pred_plot <- ggplot() +
+  geom_line(mapping = aes(x = y_pred_seq, y = y_pred), stat = "identity") +
+  geom_point(mapping = aes(x = y_pred_seq, y = y_pred), stat = "identity") +
+  geom_line(mapping = aes(x = y_pred_seq, y = y_pred_conf_upper), alpha = 0.5, linetype = "dashed", stat = "identity") +
+  geom_line(mapping = aes(x = y_pred_seq, y = y_pred_conf_lower), alpha = 0.5, linetype = "dashed", stat = "identity") +
+  geom_point(mapping = aes(x = y_true_seq, y = sales$Sales), col = "blue", stat = "identity") +
+  # Set labels
+  scale_x_continuous(breaks = pred_axis_seq, labels = pred_axis) +
+  labs(title = "Predictions", x = "Quarter", y = "Sales")
+
+pred_plot
+```
 
 # 3
