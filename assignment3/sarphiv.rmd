@@ -1,0 +1,368 @@
+---
+title: Assignment 3
+author: sarphiv
+output:
+  bookdown::html_document2: default
+  bookdown::pdf_document2: default
+---
+```{r include = FALSE}
+# Disable inclusion of code chunks in the output
+knitr::opts_chunk$set(echo = FALSE)
+library("marima")
+library("forecast")
+
+set.seed(1337)
+
+
+# Function to reset the default parameters
+par_defaults <- par(no.readonly = TRUE)
+par_reset <- function() {
+  par(par_defaults)
+}
+```
+
+# Initial
+```{R}
+# Load the data
+data <- read.csv("A3Data.csv", header = TRUE, sep = ",")
+
+# Transform first column
+colnames(data)[1] <- "Time"
+data$Time <- as.factor(data$Time)
+
+# Length
+n <- length(data$Time)
+```
+
+# Univariate
+```{R}
+par(mar=c(5,4,4,6)+0.1, las=1)
+
+
+plot.new()
+plot.window(xlim = c(1, n), ylim = c(0, max(c(data$InterestRate, data$InflationRate), na.rm=T)))
+points(data$Time, data$InterestRate, col = "chartreuse3", type = "s")
+points(data$Time, data$InflationRate, col="cadetblue", type="s")
+axis(4)
+
+plot.window(xlim=c(1, n), ylim=range(data$Denmark, na.rm=T))
+lines(data$Time, data$Denmark, col = "red", pch = 20, type = "b")
+axis(1, at=1:n, labels=data$Time, las=2)
+axis(2)
+box()
+
+title("Average Danish house price, interest rate, and inflation", adj = 0)
+mtext("Rate (%)", side = 4, las = 3, line = 3)
+
+# TODO: FIGURE OUT WHAT UNIT THIS IS
+mtext("???????????????????????WTF IS THIS, IT IS NOT THE PRICE PER SQUARE METER?????????????????????????????", side = 2, las=3, line=3)
+legend("top", legend=c("Denmark", "Interest rate", "Inflation rate"), col=c("red", "chartreuse3", "cadetblue"), lty=1, cex=0.8)
+
+grid()
+```
+
+## No transformations
+```{R}
+par_reset()
+acf(na.omit(data$Denmark), lag.max = 20, main = "ACF of Danish house price")
+pacf(na.omit(data$Denmark), lag.max = 20, main = "ACF of Danish house price")
+# Cross-correlation function of Capital, Sealand, MidJutland, and Rural
+acf(na.omit(subset(data, select = c(Capital, Sealand, MidJutland, Rural))), lag.max = 20)
+```
+
+## Transformed
+```{R}
+trans <- data.frame(
+  Denmark    = diff(log(data$Denmark), lag = 4),
+  Capital    = diff(log(data$Capital), lag = 4),
+  Sealand    = diff(log(data$Sealand), lag = 4),
+  MidJutland = diff(log(data$MidJutland), lag = 4),
+  Rural      = diff(log(data$Rural), lag = 4)
+)
+
+n_trans <- length(trans$Denmark)
+
+plot.new()
+plot.window(xlim=c(1, n_trans), ylim=range(trans$Denmark, na.rm=T))
+lines(trans$Denmark, col = "red", pch = 20, type = "b")
+axis(1, at=1:n_trans, labels=1:n_trans, las=2)
+axis(2)
+box()
+
+grid()
+
+title("Average transformed Danish house price, interest rate, and inflation", adj = 0)
+```
+
+```{R}
+par_reset()
+acf(na.omit(trans$Denmark), lag.max = 20,  main = "ACF of transformed Danish house price")
+pacf(na.omit(trans$Denmark), lag.max = 20, main = "PACF of transformed Danish house price")
+acf(na.omit(subset(trans, select = c(Capital, Sealand, MidJutland, Rural))), lag.max = 20)
+```
+
+## Model
+Transformation determined via prior knowledge about yearly seasonality, 
+and the clear non-stationarity seen in the increasing variance. 
+Square root is chosen from the set of Box-Cox transformations according to chapter 6.7.
+
+### Non-seasonal
+(2, 0, 0) to deal with ACF plot.
+
+### Seasonal
+(1, 1, 0) seems to cause a weird aliasing/echo of period 8. 
+(0, 1, 1) appears to eliminate this echo much better.
+(1, 1, 1) may be overparameterized.
+Use Tymek's analysis to determine which of the three to use.
+
+```{R}
+uni_model <- Arima(
+  na.omit(data$Denmark),
+  include.mean = T,
+  order = c(2, 0, 0),
+  seasonal = list(order = c(0, 1, 1), period = 4),
+  lambda = 0,
+  biasadj = T
+)
+n_uni_res <- length(uni_model$residuals)
+tsdisplay(uni_model$residuals)
+
+uni_model
+
+# Q-Q plot
+qqnorm(uni_model$residuals, main = "Normal Q-Q plot of residuals")
+qqline(uni_model$residuals)
+
+# Shapiro-Wilk test
+shapiro.test(uni_model$residuals)
+
+# Kolmogoro-Smirnov test
+ks.test(uni_model$residuals, "pnorm", mean(uni_model$residuals), sd(uni_model$residuals))
+
+# Sign test
+binom.test(
+  sum((uni_model$residuals[-1] * uni_model$residuals[-n_uni_res]) < 0),
+  length(uni_model$residuals) - 1
+)
+```
+
+Has to use log-transformation since sqrt-transformation fails normality tests. 
+Sign-test succeeded. Unable to reject that residuals are normally distributed.
+
+
+## Forecasting
+```{R}
+uni_model_forecast <- forecast(uni_model, level = c(95))
+plot(data$Denmark, col = "blue", pch = 20, type = "b")
+lines(c(uni_model_forecast$fitted, uni_model_forecast$mean[1]), col = "red")
+lines((n_uni_res+1):(n_uni_res+6), uni_model_forecast$mean[1:6], col = "orange")
+lines((n_uni_res+1):(n_uni_res+6), uni_model_forecast$lower[1:6], col = "orange", lty = 2)
+lines((n_uni_res + 1):(n_uni_res + 6), uni_model_forecast$upper[1:6], col = "orange", lty = 2)
+grid()
+```
+
+## External inputs
+```{R}
+x_reg <- subset(data, select = c(InterestRate, InflationRate))
+x_reg <- data.matrix(x_reg)
+# WARN: Hard-coded values from dataset
+x_reg[is.na(x_reg)] <- matrix(c(1.925, 8.04580152671754), ncol = 2, nrow = 4, byrow = T)
+
+unix_model <- Arima(
+  na.omit(data$Denmark),
+  include.mean = T,
+  order = c(2, 0, 0),
+  seasonal = list(order = c(0, 0, 1), period = 4),
+  lambda = 0,
+  biasadj = T,
+  xreg = diffinv(data.matrix(subset(data, select = c(InterestRate, InflationRate))[1:n_uni_res, ]), 4)[-(1:4), ]
+)
+n_unix_res <- length(unix_model$residuals)
+tsdisplay(unix_model$residuals)
+
+unix_model
+
+# Q-Q plot
+qqnorm(unix_model$residuals, main = "Normal Q-Q plot of residuals")
+qqline(unix_model$residuals)
+
+# Shapiro-Wilk test
+shapiro.test(unix_model$residuals)
+
+# Kolmogoro-Smirnov test
+ks.test(unix_model$residuals, "pnorm", mean(unix_model$residuals), sd(unix_model$residuals))
+
+# Sign test
+binom.test(
+  sum((unix_model$residuals[-1] * unix_model$residuals[-n_uni_res]) < 0),
+  length(unix_model$residuals) - 1
+)
+```
+
+Not transforming the external inputs, since want to incorporate the non-stationarity of them.
+Must use diffinv to get the correct values for the external inputs, 
+since the model is differencing the external inputs internally.
+
+
+## Forecasting with external inputs
+```{R}
+unix_model_forecast <- forecast(unix_model, level = c(95), xreg = diffinv(x_reg, 4)[-(1:4), ])
+plot(data$Denmark, col = "blue", pch = 20, type = "b")
+lines(c(unix_model_forecast$fitted, unix_model_forecast$mean[1]), col = "red")
+lines((n_uni_res+1):(n_uni_res+6), unix_model_forecast$mean[1:6], col = "orange")
+lines((n_uni_res+1):(n_uni_res+6), unix_model_forecast$lower[1:6], col = "orange", lty = 2)
+lines((n_uni_res + 1):(n_uni_res + 6), unix_model_forecast$upper[1:6], col = "orange", lty = 2)
+grid()
+```
+
+## Conclusions
+The data does not include any major crisis in Denmark. 
+It does not include any actual longer term depressions, 
+so the rapid rise seen later has no prior.
+
+Despite this, the external regressor model appears to fit my understanding of economics better.
+The rising interest rates to tame inflation will affect mortgages, 
+and therefore house prices quite negatively since people are less likely to buy houses,
+because the mortgages are more expensive, which should cause a decrease in price.
+Existing owners are also more likely to default, which further decreases the price.
+
+The drop is rather large, but we're long overdue for a depression after
+the irresponsible quantitative easing and low interest rates of the last decade
+in response to 2008.
+
+
+# Multivariate
+```{R}
+par(mar=c(5,4,4,6)+0.1, las=1)
+
+
+plot.new()
+plot.window(xlim = c(1, n), ylim = c(0, max(c(data$InterestRate, data$InflationRate), na.rm=T)))
+points(data$Time, data$InterestRate, col = "chartreuse3", type = "s")
+points(data$Time, data$InflationRate, col="cadetblue", type="s")
+axis(4)
+
+plot.window(xlim=c(1, n), ylim=c(min(data$Capital, data$Sealand, data$MidJutland, data$Rural, na.rm=T), max(data$Capital, data$Sealand, data$MidJutland, data$Rural, na.rm=T)))
+lines(data$Time, data$Capital, col = "red", pch = 20, type = "b")
+lines(data$Time, data$Sealand, col = "blue", pch = 20, type = "b")
+lines(data$Time, data$MidJutland, col = "cyan", pch = 20, type = "b")
+lines(data$Time, data$Rural, col = "darkgoldenrod1", pch = 20, type = "b")
+axis(1, at=1:n, labels=data$Time, las=2)
+axis(2)
+box()
+
+title("Average Danish house price, interest rate, and inflation", adj = 0)
+mtext("Rate (%)", side = 4, las = 3, line = 3)
+
+# TODO: FIGURE OUT WHAT UNIT THIS IS
+mtext("???????????????????????WTF IS THIS, IT IS NOT THE PRICE PER SQUARE METER?????????????????????????????", side = 2, las=3, line=3)
+legend(17, 4950, legend=c("Capital", "Sealand", "MidJutland", "Rural", "Interest rate", "Inflation rate"), col=c("red", "blue", "cyan", "darkgoldenrod1", "chartreuse3", "cadetblue"), lty=1, cex=0.8)
+
+grid()
+```
+
+## ACF and PACF
+Note that the variance used to calculate the confidence interval is wrong. 
+R uses $1/N$ by default, but theorem 9.6 is different. 
+Going to stick with the default though, even though it probably yields a variance
+that is potentially $1/4$ times as small.
+
+```{R}
+par_reset()
+acf(na.omit(subset(trans, select = c(Capital, Sealand, MidJutland, Rural))), lag.max = 20)
+pacf(na.omit(subset(trans, select = c(Capital, Sealand, MidJutland, Rural))), lag.max = 20)
+```
+
+Lots of cross-correlation, likely some AR part based on the PACF. 
+Hard to see any MA part in CCF, but likely masked by the AR part.
+
+## Model selection
+```{R}
+mulx_model_params <- define.model(
+  kvar = 6,
+  ar = c(1),
+  ma = c(1),
+  reg.var = c(5, 6)
+  # rem.var = c(5, 6)
+)
+data_m <- cbind(
+    na.omit(log(subset(data, select = c(Capital, Sealand, MidJutland, Rural)))),
+    x_reg[-((nrow(x_reg)-5):nrow(x_reg)), ]
+)
+data_m.diff <- define.dif(data_m, difference = c(1, 4,  2, 4,  3, 4,  4, 4))
+mulx_model <- marima(
+  data_m.diff$y.dif,
+  ar.pattern = mulx_model_params$ar.pattern,
+  ma.pattern = mulx_model_params$ma.pattern
+)
+
+# Transforming residuals according to chapter 9.8
+mulx_res <- ts(na.omit(matrix(mulx_model$residuals, ncol = 6, byrow = T)))[, 1:4]
+mulx_eigen <- eigen(cov(mulx_res))
+
+mulx_res_trans <- mulx_eigen$vectors %*% mulx_model$residuals[1:4, ]
+mulx_res_trans <- diag(2 / sqrt(mulx_eigen$values)) %*% mulx_res_trans
+mulx_res_trans <- ts(na.omit(matrix(mulx_res_trans, ncol = 4, byrow = T)))
+
+
+acf(mulx_res_trans)
+pacf(mulx_res_trans)
+
+mulx_model
+
+# # Q-Q plot
+# qqnorm(mulx_model$residuals, main = "Normal Q-Q plot of residuals")
+# qqline(mulx_model$residuals)
+
+# # Shapiro-Wilk test
+# shapiro.test(mulx_model$residuals)
+
+# # Kolmogoro-Smirnov test
+# ks.test(mulx_model$residuals, "pnorm", mean(mulx_model$residuals), sd(mulx_model$residuals))
+
+# # Sign test
+# binom.test(
+#   sum((mulx_model$residuals[-1] * mulx_model$residuals[-n_uni_res]) < 0),
+#   length(mulx_model$residuals) - 1
+# )
+```
+
+
+probably overparameterized,
+consider specifying parameters for specific lags instead
+
+
+remember to diffinv
+
+remember it is marimax
+
+do model checking chapter
+
+should interest rates be used as reg.var or indep
+
+
+setting to reg.var since the data is rather sparse on financial crises, 
+so do not want the model to start predicting inflation and interest rates.
+
+## Explanation of parameter estimates
+
+## Forecasting
+```{R}
+mulx_forecast <- arma.forecast(
+  series = data_m,
+  marima = mulx_model, 
+  dif.poly = data_m.diff$dif.poly,
+  nstart=1,
+  nstep=nrow(data_m)-1
+)
+
+# plot(exp(diffinv(mulx_forecast$forecasts[1, ], 4)))
+plot(exp(mulx_forecast$forecasts[1, ]), type = "l")
+lines(exp(mulx_forecast$forecasts[2, ]))
+lines(exp(mulx_forecast$forecasts[3, ]))
+lines(exp(mulx_forecast$forecasts[4, ]))
+```
+
+need to untransform data
+
+## Conclusions
