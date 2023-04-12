@@ -10,6 +10,7 @@ output:
 knitr::opts_chunk$set(echo = FALSE)
 library("marima")
 library("forecast")
+library("tseries")
 
 set.seed(1337)
 
@@ -36,7 +37,7 @@ n <- length(data$Time)
 
 # Univariate
 ```{R}
-par(mar=c(5,4,4,6)+0.1, las=1)
+par(mar=c(5,5,2,5), las=1)
 
 
 plot.new()
@@ -46,17 +47,16 @@ points(data$Time, data$InflationRate, col="cadetblue", type="s")
 axis(4)
 
 plot.window(xlim=c(1, n), ylim=range(data$Denmark, na.rm=T))
-lines(data$Time, data$Denmark, col = "red", pch = 20, type = "b")
+lines(data$Time, data$Denmark, col = "blue", pch = 20, type = "b")
 axis(1, at=1:n, labels=data$Time, las=2)
 axis(2)
 box()
 
-title("Average Danish house price, interest rate, and inflation", adj = 0)
-mtext("Rate (%)", side = 4, las = 3, line = 3)
+title("Average sales price, interest rate, and inflation rate", adj = 0)
 
-# TODO: FIGURE OUT WHAT UNIT THIS IS
-mtext("???????????????????????WTF IS THIS, IT IS NOT THE PRICE PER SQUARE METER?????????????????????????????", side = 2, las=3, line=3)
-legend("top", legend=c("Denmark", "Interest rate", "Inflation rate"), col=c("red", "chartreuse3", "cadetblue"), lty=1, cex=0.8)
+mtext("Rate (%)", side = 4, las = 3, line = 3)
+mtext("Average sales price (1000 DKK)", side = 2, las=3, line=3)
+legend("top", legend=c("Denmark", "Interest rate", "Inflation rate"), col=c("blue", "chartreuse3", "cadetblue"), lty=1, cex=0.8)
 
 grid()
 ```
@@ -64,74 +64,75 @@ grid()
 ## No transformations
 ```{R}
 par_reset()
-acf(na.omit(data$Denmark), lag.max = 20, main = "ACF of Danish house price")
-pacf(na.omit(data$Denmark), lag.max = 20, main = "ACF of Danish house price")
+acf(na.omit(data$Denmark), lag.max = 20, main = "ACF of average sales price")
+pacf(na.omit(data$Denmark), lag.max = 20, main = "PACF of average sales price")
 # Cross-correlation function of Capital, Sealand, MidJutland, and Rural
 acf(na.omit(subset(data, select = c(Capital, Sealand, MidJutland, Rural))), lag.max = 20)
+pacf(na.omit(subset(data, select = c(Capital, Sealand, MidJutland, Rural))), lag.max = 20)
 ```
 
 ## Transformed
 ```{R}
 trans <- data.frame(
-  Denmark    = diff(log(data$Denmark), lag = 4),
-  Capital    = diff(log(data$Capital), lag = 4),
-  Sealand    = diff(log(data$Sealand), lag = 4),
-  MidJutland = diff(log(data$MidJutland), lag = 4),
-  Rural      = diff(log(data$Rural), lag = 4)
+  Denmark    = diff(diff(log(data$Denmark), lag = 4), lag = 1),
+  Capital    = diff(diff(log(data$Capital), lag = 4), lag = 1),
+  Sealand    = diff(diff(log(data$Sealand), lag = 4), lag = 1),
+  MidJutland = diff(diff(log(data$MidJutland), lag = 4), lag = 1),
+  Rural      = diff(diff(log(data$Rural), lag = 4), lag = 1)
 )
 
 n_trans <- length(trans$Denmark)
 
+par_reset()
+
 plot.new()
 plot.window(xlim=c(1, n_trans), ylim=range(trans$Denmark, na.rm=T))
-lines(trans$Denmark, col = "red", pch = 20, type = "b")
+lines(trans$Denmark, col = "black", pch = 20, type = "b")
 axis(1, at=1:n_trans, labels=1:n_trans, las=2)
 axis(2)
 box()
 
 grid()
 
-title("Average transformed Danish house price, interest rate, and inflation", adj = 0)
+title("Transformed average sales price", adj = 0)
+mtext("Index", side = 1, las = 1, line = 3)
+mtext("Transformed average sales price", side = 2, las=3, line=3)
 ```
 
 ```{R}
 par_reset()
-acf(na.omit(trans$Denmark), lag.max = 20,  main = "ACF of transformed Danish house price")
-pacf(na.omit(trans$Denmark), lag.max = 20, main = "PACF of transformed Danish house price")
+acf(na.omit(trans$Denmark), lag.max = 20,  main = "ACF of transformed average sales price")
+pacf(na.omit(trans$Denmark), lag.max = 20, main = "PACF of transformed average sales price")
 acf(na.omit(subset(trans, select = c(Capital, Sealand, MidJutland, Rural))), lag.max = 20)
+pacf(na.omit(subset(trans, select = c(Capital, Sealand, MidJutland, Rural))), lag.max = 20)
 ```
 
 ## Model
 Transformation determined via prior knowledge about yearly seasonality, 
 and the clear non-stationarity seen in the increasing variance. 
-Square root is chosen from the set of Box-Cox transformations according to chapter 6.7.
+Log is chosen from the set of Box-Cox transformations according to chapter 6.7.
 
-### Non-seasonal
-(2, 0, 0) to deal with ACF plot.
-
-### Seasonal
-(1, 1, 0) seems to cause a weird aliasing/echo of period 8. 
-(0, 1, 1) appears to eliminate this echo much better.
-(1, 1, 1) may be overparameterized.
-Use Tymek's analysis to determine which of the three to use.
 
 ```{R}
 uni_model <- Arima(
   na.omit(data$Denmark),
   include.mean = T,
-  order = c(2, 0, 0),
+  order = c(1, 1, 0),
   seasonal = list(order = c(0, 1, 1), period = 4),
   lambda = 0,
   biasadj = T
 )
 n_uni_res <- length(uni_model$residuals)
-tsdisplay(uni_model$residuals)
+tsdisplay(uni_model$residuals, main = "Residuals of ARIMA model")
 
 uni_model
 
 # Q-Q plot
 qqnorm(uni_model$residuals, main = "Normal Q-Q plot of residuals")
 qqline(uni_model$residuals)
+
+# KPSS test
+kpss.test(uni_model$residuals)
 
 # Shapiro-Wilk test
 shapiro.test(uni_model$residuals)
@@ -152,13 +153,46 @@ Sign-test succeeded. Unable to reject that residuals are normally distributed.
 
 ## Forecasting
 ```{R}
+par_reset()
+
 uni_model_forecast <- forecast(uni_model, level = c(95))
-plot(data$Denmark, col = "blue", pch = 20, type = "b")
-lines(c(uni_model_forecast$fitted, uni_model_forecast$mean[1]), col = "red")
-lines((n_uni_res+1):(n_uni_res+6), uni_model_forecast$mean[1:6], col = "orange")
-lines((n_uni_res+1):(n_uni_res+6), uni_model_forecast$lower[1:6], col = "orange", lty = 2)
-lines((n_uni_res + 1):(n_uni_res + 6), uni_model_forecast$upper[1:6], col = "orange", lty = 2)
+print("Mean")
+uni_model_forecast$mean
+print("Upper")
+uni_model_forecast$upper
+print("Lower")
+uni_model_forecast$lower
+
+
+par(mar=c(5,5,2,5), las=1)
+
+
+plot.new()
+plot.window(xlim = c(1, n), ylim = c(0, max(c(data$InterestRate, data$InflationRate), na.rm=T)))
+points(data$Time, data$InterestRate, col = "chartreuse3", type = "s")
+points(data$Time, data$InflationRate, col="cadetblue", type="s")
+axis(4)
+
+
+plot.window(xlim=c(1, n), ylim=range(data$Denmark, na.rm=T))
+lines(c(uni_model_forecast$fitted, uni_model_forecast$mean[1]), col = "black", lwd= 3)
+lines((n_uni_res+1):(n_uni_res+6), uni_model_forecast$mean[1:6], col = "black", lwd = 3)
+lines((n_uni_res+1):(n_uni_res+6), uni_model_forecast$lower[1:6], col = "black", lty = 2, lwd = 1)
+lines((n_uni_res + 1):(n_uni_res + 6), uni_model_forecast$upper[1:6], col = "black", lty = 2, lwd = 1)
+abline(v = n_uni_res + 1, lty = 1, col = "black")
+
+points(data$Time, data$Denmark, col = "blue", pch = 20, type = "b")
+axis(1, at=1:n, labels=data$Time, las=2)
+axis(2)
+box()
+
+title("Average sales price, interest rate, and inflation rate", adj = 0)
+
+mtext("Rate (%)", side = 4, las = 3, line = 3)
+mtext("Average sales price (1000 DKK)", side = 2, las=3, line=3)
+legend("top", legend=c("Forecast", "95% CI", "Denmark", "Interest rate", "Inflation rate"), col=c("black", "black", "blue", "chartreuse3", "cadetblue"), lty=c(1, 2, 1, 1, 1), cex=0.8)
 grid()
+
 ```
 
 ## External inputs
@@ -171,20 +205,25 @@ x_reg[is.na(x_reg)] <- matrix(c(1.925, 8.04580152671754), ncol = 2, nrow = 4, by
 unix_model <- Arima(
   na.omit(data$Denmark),
   include.mean = T,
-  order = c(2, 0, 0),
-  seasonal = list(order = c(0, 0, 1), period = 4),
+  order = c(1, 1, 0),
+  seasonal = list(order = c(0, 1, 1), period = 4),
   lambda = 0,
   biasadj = T,
-  xreg = diffinv(data.matrix(subset(data, select = c(InterestRate, InflationRate))[1:n_uni_res, ]), 4)[-(1:4), ]
+  xreg = apply(diffinv(data.matrix(x_reg)[1:n_uni_res, ], 4)[-(1:4), ], 2, cumsum)
 )
+
+
 n_unix_res <- length(unix_model$residuals)
-tsdisplay(unix_model$residuals)
+tsdisplay(unix_model$residuals, main = "Residuals of ARIMAX model")
 
 unix_model
 
 # Q-Q plot
 qqnorm(unix_model$residuals, main = "Normal Q-Q plot of residuals")
 qqline(unix_model$residuals)
+
+# KPSS test
+kpss.test(unix_model$residuals)
 
 # Shapiro-Wilk test
 shapiro.test(unix_model$residuals)
@@ -206,12 +245,45 @@ since the model is differencing the external inputs internally.
 
 ## Forecasting with external inputs
 ```{R}
-unix_model_forecast <- forecast(unix_model, level = c(95), xreg = diffinv(x_reg, 4)[-(1:4), ])
-plot(data$Denmark, col = "blue", pch = 20, type = "b")
-lines(c(unix_model_forecast$fitted, unix_model_forecast$mean[1]), col = "red")
-lines((n_uni_res+1):(n_uni_res+6), unix_model_forecast$mean[1:6], col = "orange")
-lines((n_uni_res+1):(n_uni_res+6), unix_model_forecast$lower[1:6], col = "orange", lty = 2)
-lines((n_uni_res + 1):(n_uni_res + 6), unix_model_forecast$upper[1:6], col = "orange", lty = 2)
+unix_model_forecast <- forecast(unix_model, h = 6, level = c(95), xreg = apply(diffinv(x_reg[(n_uni_res+1):(n_uni_res+6), ], 4)[-(1:4), ], 2, cumsum))
+
+print("Mean")
+unix_model_forecast$mean
+print("Upper")
+unix_model_forecast$upper
+print("Lower")
+unix_model_forecast$lower
+
+
+
+
+par(mar=c(5,5,2,5), las=1)
+
+
+plot.new()
+plot.window(xlim = c(1, n), ylim = c(0, max(c(data$InterestRate, data$InflationRate), na.rm=T)))
+points(data$Time, data$InterestRate, col = "chartreuse3", type = "s")
+points(data$Time, data$InflationRate, col="cadetblue", type="s")
+axis(4)
+
+
+plot.window(xlim = c(1, n), ylim = range(c(data$Denmark, unix_model_forecast$upper[(n_uni_res + 1):(n_uni_res + 6)]), na.rm = T))
+lines(c(unix_model_forecast$fitted, unix_model_forecast$mean[1]), col = "black", lwd = 3)
+lines((n_uni_res+1):(n_uni_res+6), unix_model_forecast$mean, col = "black", lwd= 3)
+lines((n_uni_res+1):(n_uni_res+6), unix_model_forecast$lower, col = "black", lty = 2, lwd = 1)
+lines((n_uni_res + 1):(n_uni_res + 6), unix_model_forecast$upper, col = "black", lty = 2, lwd = 1)
+abline(v = n_uni_res + 1, lty = 1, col = "black")
+
+points(data$Time, data$Denmark, col = "blue", pch = 20, type = "b")
+axis(1, at=1:n, labels=data$Time, las=2)
+axis(2)
+box()
+
+title("Average sales price, interest rate, and inflation rate", adj = 0)
+
+mtext("Rate (%)", side = 4, las = 3, line = 3)
+mtext("Average sales price (1000 DKK)", side = 2, las=3, line=3)
+legend("top", legend=c("Forecast", "95% CI", "Denmark", "Interest rate", "Inflation rate"), col=c("black", "black", "blue", "chartreuse3", "cadetblue"), lty=c(1, 2, 1, 1, 1), cex=0.8)
 grid()
 ```
 
@@ -233,7 +305,7 @@ in response to 2008.
 
 # Multivariate
 ```{R}
-par(mar=c(5,4,4,6)+0.1, las=1)
+par(mar=c(5,5,2,5), las=1)
 
 
 plot.new()
@@ -255,7 +327,7 @@ title("Average Danish house price, interest rate, and inflation", adj = 0)
 mtext("Rate (%)", side = 4, las = 3, line = 3)
 
 # TODO: FIGURE OUT WHAT UNIT THIS IS
-mtext("???????????????????????WTF IS THIS, IT IS NOT THE PRICE PER SQUARE METER?????????????????????????????", side = 2, las=3, line=3)
+mtext("Average sales price (1000 DKK)", side = 2, las=3, line=3)
 legend(17, 4950, legend=c("Capital", "Sealand", "MidJutland", "Rural", "Interest rate", "Inflation rate"), col=c("red", "blue", "cyan", "darkgoldenrod1", "chartreuse3", "cadetblue"), lty=1, cex=0.8)
 
 grid()
@@ -283,18 +355,25 @@ mulx_model_params <- define.model(
   ar = c(1),
   ma = c(1),
   reg.var = c(5, 6)
-  # rem.var = c(5, 6)
 )
-data_m <- cbind(
-    na.omit(log(subset(data, select = c(Capital, Sealand, MidJutland, Rural)))),
-    x_reg[-((nrow(x_reg)-5):nrow(x_reg)), ]
+data_m <- t(cbind(
+  na.omit(log(subset(data, select = c(Capital, Sealand, MidJutland, Rural)))),
+  x_reg[-((nrow(x_reg) - 5):nrow(x_reg)), ]
+))
+data_m.diff <- define.dif(
+  data_m,
+  difference = c(
+    1, 1,  2, 1,  3, 1,  4, 1,
+    1, 4,  2, 4,  3, 4,  4, 4
+  )
 )
-data_m.diff <- define.dif(data_m, difference = c(1, 4,  2, 4,  3, 4,  4, 4))
 mulx_model <- marima(
   data_m.diff$y.dif,
   ar.pattern = mulx_model_params$ar.pattern,
-  ma.pattern = mulx_model_params$ma.pattern
+  ma.pattern = mulx_model_params$ma.pattern,
+  penalty = 2
 )
+
 
 # Transforming residuals according to chapter 9.8
 mulx_res <- ts(na.omit(matrix(mulx_model$residuals, ncol = 6, byrow = T)))[, 1:4]
@@ -305,64 +384,117 @@ mulx_res_trans <- diag(2 / sqrt(mulx_eigen$values)) %*% mulx_res_trans
 mulx_res_trans <- ts(na.omit(matrix(mulx_res_trans, ncol = 4, byrow = T)))
 
 
+par_reset()
+
 acf(mulx_res_trans)
 pacf(mulx_res_trans)
 
+
+for (i in 1:4) {
+  print(shapiro.test(mulx_res_trans[, i])$p.value)
+}
+
 mulx_model
-
-# # Q-Q plot
-# qqnorm(mulx_model$residuals, main = "Normal Q-Q plot of residuals")
-# qqline(mulx_model$residuals)
-
-# # Shapiro-Wilk test
-# shapiro.test(mulx_model$residuals)
-
-# # Kolmogoro-Smirnov test
-# ks.test(mulx_model$residuals, "pnorm", mean(mulx_model$residuals), sd(mulx_model$residuals))
-
-# # Sign test
-# binom.test(
-#   sum((mulx_model$residuals[-1] * mulx_model$residuals[-n_uni_res]) < 0),
-#   length(mulx_model$residuals) - 1
-# )
 ```
 
-
-probably overparameterized,
-consider specifying parameters for specific lags instead
-
-
-remember to diffinv
-
-remember it is marimax
-
-do model checking chapter
-
-should interest rates be used as reg.var or indep
-
-
-setting to reg.var since the data is rather sparse on financial crises, 
-so do not want the model to start predicting inflation and interest rates.
 
 ## Explanation of parameter estimates
 
 ## Forecasting
 ```{R}
+data_mp <- t(cbind(
+  log(subset(data, select = c(Capital, Sealand, MidJutland, Rural))),
+  x_reg
+))
+
 mulx_forecast <- arma.forecast(
-  series = data_m,
-  marima = mulx_model, 
+  series = data_mp,
+  marima = mulx_model,
   dif.poly = data_m.diff$dif.poly,
-  nstart=1,
-  nstep=nrow(data_m)-1
+  nstart = ncol(data_mp) - 6,
+  nstep = 6,
+  check = F
 )
 
-# plot(exp(diffinv(mulx_forecast$forecasts[1, ], 4)))
-plot(exp(mulx_forecast$forecasts[1, ]), type = "l")
-lines(exp(mulx_forecast$forecasts[2, ]))
-lines(exp(mulx_forecast$forecasts[3, ]))
-lines(exp(mulx_forecast$forecasts[4, ]))
+
+mulx_pred <- array(0, c(4, 6, 3))
+
+print("Row: Step. Column: Mean, Lower, Upper.")
+for (i in 1:4) {
+
+  mulx_pred[i, , ] <- matrix(rep(mulx_forecast$forecasts[i, (ncol(data_mp) - 5):ncol(data_mp)], 3), nrow = 6) + cbind(rep(0, 6), -1, 1) * qnorm(0.975) * sqrt(mulx_forecast$pred.var[i, i, ])
+
+  print(paste(names(data)[2+i]))
+  print(mulx_pred[i, ,])
+}
+
+
+
+par(mar=c(5,5,2,5), las=1)
+
+mulx_colors <- c("red", "blueviolet", "cyan", "darkgoldenrod2")
+
+plot.new()
+grid()
+
+plot.window(xlim = c(1, n), ylim = c(0, max(c(data$InterestRate, data$InflationRate), na.rm=T)))
+points(data$Time, data$InterestRate, col = "chartreuse3", type = "s")
+points(data$Time, data$InflationRate, col="cadetblue", type="s")
+axis(4)
+
+plot.window(xlim = c(1, n), ylim = c(min(data$Capital, data$Sealand, data$MidJutland, data$Rural, na.rm = T), max(data$Capital, data$Sealand, data$MidJutland, data$Rural, exp(mulx_forecast$forecasts[1, ]), na.rm = T)))
+for (i in 1:4) {
+  lines(exp(mulx_forecast$forecasts[i, ]), lwd = 3)
+  matlines((ncol(data_mp) - 5):ncol(data_mp), exp(mulx_pred[i, 1:6, ]), lty = c(1, 2, 2), col = mulx_colors[i], lwd = 1)
+  points(data$Time, data[, 2 + i], col = mulx_colors[i], pch = 20)
+}
+
+abline(v = ncol(data_mp) - 5, lty = 1, col = "black")
+
+axis(2)
+axis(1, at=1:n, labels=data$Time, las=2)
+
+box()
+
+title("Average sales price, interest rate, and inflation rate", adj = 0)
+mtext("Rate (%)", side = 4, las = 3, line = 3)
+
+mtext("Average sales price (1000 DKK)", side = 2, las=3, line=3)
+legend(17, 4950, legend=c("Forecast", "Capital", "Sealand", "MidJutland", "Rural", "Interest rate", "Inflation rate"), col=c("black", mulx_colors, "chartreuse3", "cadetblue"), lty=1, cex=0.8)
+
 ```
 
-need to untransform data
+```{R}
+par(mar=c(5,5,2,5), las=1)
+
+plot.new()
+grid()
+
+plot.window(xlim = c(110, n), ylim = c(0, max(c(data$InterestRate, data$InflationRate), na.rm=T)))
+points(data$Time, data$InterestRate, col = "chartreuse3", type = "s")
+points(data$Time, data$InflationRate, col="cadetblue", type="s")
+axis(4)
+
+plot.window(xlim = c(110, n), ylim = c(min(data$Capital, data$Sealand, data$MidJutland, data$Rural, na.rm = T), max(data$Capital, data$Sealand, data$MidJutland, data$Rural, exp(mulx_forecast$forecasts[1, ]), na.rm = T)))
+for (i in 1:4) {
+  lines(exp(mulx_forecast$forecasts[i, ]), col = mulx_colors[i], lwd = 3)
+  matlines((ncol(data_mp) - 5):ncol(data_mp), exp(mulx_pred[i, 1:6, ]), lty = c(1, 2, 2), col = mulx_colors[i], lwd = 1)
+  points(data$Time, data[, 2 + i], col = mulx_colors[i], pch = 20)
+}
+
+abline(v = ncol(data_mp) - 5, lty = 1, col = "black")
+
+axis(2)
+axis(1, at=1:n, labels=data$Time, las=2)
+
+box()
+
+title("Average sales price, interest rate, and inflation rate", adj = 0)
+mtext("Rate (%)", side = 4, las = 3, line = 3)
+
+mtext("Average sales price (1000 DKK)", side = 2, las=3, line=3)
+legend(110, 3800, legend=c("Capital", "Sealand", "MidJutland", "Rural", "Interest rate", "Inflation rate"), col=c(mulx_colors, "chartreuse3", "cadetblue"), lty=1, cex=0.8)
+
+```
 
 ## Conclusions
