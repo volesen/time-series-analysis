@@ -179,7 +179,7 @@ lines(c(uni_model_forecast$fitted, uni_model_forecast$mean[1]), col = "black", l
 lines((n_uni_res+1):(n_uni_res+6), uni_model_forecast$mean[1:6], col = "black", lwd = 3)
 lines((n_uni_res+1):(n_uni_res+6), uni_model_forecast$lower[1:6], col = "black", lty = 2, lwd = 1)
 lines((n_uni_res + 1):(n_uni_res + 6), uni_model_forecast$upper[1:6], col = "black", lty = 2, lwd = 1)
-abline(v = n_uni_res + 1, lty = 2, col = "black")
+abline(v = n_uni_res + 1, lty = 1, col = "black")
 
 points(data$Time, data$Denmark, col = "blue", pch = 20, type = "b")
 axis(1, at=1:n, labels=data$Time, las=2)
@@ -190,7 +190,7 @@ title("Average sales price, interest rate, and inflation rate", adj = 0)
 
 mtext("Rate (%)", side = 4, las = 3, line = 3)
 mtext("Average sales price (1000 DKK)", side = 2, las=3, line=3)
-legend("top", legend=c("Forecast", "95% CI", "Denmark", "Interest rate", "Inflation rate"), col=c("black", "black", "blue", "chartreuse3", "cadetblue"), lty=c(1, 2), cex=0.8)
+legend("top", legend=c("Forecast", "95% CI", "Denmark", "Interest rate", "Inflation rate"), col=c("black", "black", "blue", "chartreuse3", "cadetblue"), lty=c(1, 2, 1, 1, 1), cex=0.8)
 grid()
 
 ```
@@ -272,7 +272,7 @@ lines(c(unix_model_forecast$fitted, unix_model_forecast$mean[1]), col = "black",
 lines((n_uni_res+1):(n_uni_res+6), unix_model_forecast$mean, col = "black", lwd= 3)
 lines((n_uni_res+1):(n_uni_res+6), unix_model_forecast$lower, col = "black", lty = 2, lwd = 1)
 lines((n_uni_res + 1):(n_uni_res + 6), unix_model_forecast$upper, col = "black", lty = 2, lwd = 1)
-abline(v = n_uni_res + 1, lty = 2, col = "black")
+abline(v = n_uni_res + 1, lty = 1, col = "black")
 
 points(data$Time, data$Denmark, col = "blue", pch = 20, type = "b")
 axis(1, at=1:n, labels=data$Time, las=2)
@@ -283,7 +283,7 @@ title("Average sales price, interest rate, and inflation rate", adj = 0)
 
 mtext("Rate (%)", side = 4, las = 3, line = 3)
 mtext("Average sales price (1000 DKK)", side = 2, las=3, line=3)
-legend("top", legend=c("Forecast", "95% CI", "Denmark", "Interest rate", "Inflation rate"), col=c("black", "black", "blue", "chartreuse3", "cadetblue"), lty=c(1, 2), cex=0.8)
+legend("top", legend=c("Forecast", "95% CI", "Denmark", "Interest rate", "Inflation rate"), col=c("black", "black", "blue", "chartreuse3", "cadetblue"), lty=c(1, 2, 1, 1, 1), cex=0.8)
 grid()
 ```
 
@@ -449,7 +449,7 @@ for (i in 1:4) {
   points(data$Time, data[, 2 + i], col = mulx_colors[i], pch = 20)
 }
 
-abline(v = ncol(data_mp) - 5, lty = 2, col = "black")
+abline(v = ncol(data_mp) - 5, lty = 1, col = "black")
 
 axis(2)
 axis(1, at=1:n, labels=data$Time, las=2)
@@ -482,7 +482,7 @@ for (i in 1:4) {
   points(data$Time, data[, 2 + i], col = mulx_colors[i], pch = 20)
 }
 
-abline(v = ncol(data_mp) - 5, lty = 2, col = "black")
+abline(v = ncol(data_mp) - 5, lty = 1, col = "black")
 
 axis(2)
 axis(1, at=1:n, labels=data$Time, las=2)
