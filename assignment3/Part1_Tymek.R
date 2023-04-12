@@ -606,10 +606,13 @@ acf(lm_model_3$residuals)
 pacf(lm_model_3$residuals)
 
 # xreg_properly_differenced = cumsum(diffinv(df_train$InflationRate[1:length(df_train$Denmark)],4)[-(1:4)])
-xreg_properly_differenced = cumsum(diffinv(df$InflationRate,4)[-(1:4)])
+xreg_properly_differenced = cbind(
+  cumsum(diffinv(df$InterestRate,4)[-(1:4)]),
+  cumsum(diffinv(df$InflationRate,4)[-(1:4)])
+  )
 arima_xreg = Arima(log(df_train$Denmark), order = c(1, 1, 0),
                    seasonal = list(order = c(0, 1, 1), period = 4),
-                   xreg = xreg_properly_differenced[1:nrow(df_train)])
+                   xreg = xreg_properly_differenced[1:nrow(df_train), ])
 summary(arima_xreg)
 
 m3 <- Arima(log(df_train$Denmark), order = c(1, 1, 0),
@@ -628,11 +631,21 @@ ccf(df$InflationRate, df$InterestRate, na.action=na.omit)
 fccf(df$InterestRate, df$InflationRate, na.action=na.omit)
 
 predictions_xreg <- predict(arima_xreg, n.ahead = 6,
-                            xreg = tail(df$InflationRate, 6))
+                            xreg = tail(df[, ], 6))
 
-forecast.arima,h = 5, xreg=tf[114:length(tf)]
+# forecast.arima,h = 5, xreg=tf[114:length(tf)]
 
-arima_xreg %>% forecast(h=6, xreg = tail(xreg_properly_differenced, 6)) %>% autoplot
+predictions <- arima_xreg %>%
+  forecast(h=6, xreg = tail(xreg_properly_differenced, 6))
+exp(predictions)
+
+%>%
+  autoplot
+
+
 m3 %>% forecast(h=6) %>% autoplot
+
+plot(exp(c(predictions$fitted, predictions$mean)))
+abline(v = 122)
 
 
