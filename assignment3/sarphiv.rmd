@@ -11,6 +11,7 @@ knitr::opts_chunk$set(echo = FALSE)
 library("marima")
 library("forecast")
 library("tseries")
+library("stats")
 
 set.seed(1337)
 
@@ -202,6 +203,8 @@ x_reg <- data.matrix(x_reg)
 # WARN: Hard-coded values from dataset
 x_reg[is.na(x_reg)] <- matrix(c(1.925, 8.04580152671754), ncol = 2, nrow = 4, byrow = T)
 
+x_reg <- scale(x_reg)
+
 x_reg_diff <- apply(diffinv(data.matrix(x_reg), 4)[-(1:4), ], 2, cumsum)
 
 
@@ -220,6 +223,13 @@ n_unix_res <- length(unix_model$residuals)
 tsdisplay(unix_model$residuals, main = "Residuals of ARIMAX model")
 
 unix_model
+
+
+
+# Inclusion of regressors
+pacf(cbind(diff(diff(log(data$Denmark), 4), 1), head(x_reg_diff, n_uni_res+1)), na.action = na.omit)
+# TODO: Create a design matrix with different lags of the regressors
+# TODO: Need to maybe do that for the MARIMA too
 
 # Q-Q plot
 qqnorm(unix_model$residuals, main = "Normal Q-Q plot of residuals")
@@ -344,6 +354,8 @@ that is potentially $1/4$ times as small.
 
 ```{R}
 par_reset()
+acf(na.omit(subset(data, select = c(Capital, Sealand, MidJutland, Rural))), lag.max = 20)
+pacf(na.omit(subset(data, select = c(Capital, Sealand, MidJutland, Rural))), lag.max = 20)
 acf(na.omit(subset(trans, select = c(Capital, Sealand, MidJutland, Rural))), lag.max = 20)
 pacf(na.omit(subset(trans, select = c(Capital, Sealand, MidJutland, Rural))), lag.max = 20)
 ```
@@ -354,19 +366,33 @@ Hard to see any MA part in CCF, but likely masked by the AR part.
 ## Model selection
 ```{R}
 mulx_model_params <- define.model(
-  kvar = 6,
+  kvar = 8,
   ar = c(1),
-  ma = c(1),
+  ma = c(1, 4),
   # rem.var = c(5),
   # reg.var = c(6)
-  reg.var = c(5, 6)
+  reg.var = c(5, 6, 7, 8)
 )
+data_m <- cbind(
+  "int1" = stats::lag(ts(x_reg[, 1]), 1),
+  "int4" = stats::lag(ts(x_reg[, 1]), 4),
+  "inf1" = stats::lag(ts(x_reg[, 2]), 1),
+  "inf4" = stats::lag(ts(x_reg[, 2]), 4)
+)
+# data_m <- cbind(
+#   "int1" = rnorm(131),
+#   "int4" = rnorm(131),
+#   "inf1" = rnorm(131),
+#   "inf4" = rnorm(131)
+# )
+data_m[is.na(data_m[, 2]), 2] = data$InterestRate[124]
+data_m[is.na(data_m[, 4]), 4] = data$InflationRate[124]
 data_m <- t(cbind(
-  na.omit(log(subset(data, select = c(Capital, Sealand, MidJutland, Rural)))),
-  x_reg[-((nrow(x_reg) - 5):nrow(x_reg)), ]
+  log(subset(data, select = c(Capital, Sealand, MidJutland, Rural))), 
+  data_m[4:nrow(data_m), ]
 ))
 data_m.diff <- define.dif(
-  data_m,
+  t(head(t(data_m), -6)),
   difference = c(
     1, 1,  2, 1,  3, 1,  4, 1,
     1, 4,  2, 4,  3, 4,  4, 4
@@ -407,10 +433,11 @@ mulx_model
 
 ## Forecasting
 ```{R}
-data_mp <- t(cbind(
-  log(subset(data, select = c(Capital, Sealand, MidJutland, Rural))),
-  x_reg
-))
+# data_mp <- t(cbind(
+#   log(subset(data, select = c(Capital, Sealand, MidJutland, Rural))),
+#   x_reg
+# ))
+data_mp <- data_m
 
 mulx_forecast <- arma.forecast(
   series = data_mp,
@@ -427,7 +454,7 @@ mulx_pred <- array(0, c(4, 6, 3))
 print("Row: Step. Column: Mean, Lower, Upper.")
 for (i in 1:4) {
 
-  mulx_pred[i, , ] <- matrix(rep(mulx_forecast$forecasts[i, (ncol(data_mp) - 5):ncol(data_mp)], 3), nrow = 6) + cbind(rep(0, 6), -1, 1) * qnorm(0.975) * sqrt(mulx_forecast$pred.var[i, i, ])
+  mulx_pred[i, , ] <- exp(matrix(rep(mulx_forecast$forecasts[i, (ncol(data_mp) - 5):ncol(data_mp)], 3), nrow = 6) + cbind(rep(0, 6), -1, 1) * qnorm(0.975) * sqrt(mulx_forecast$pred.var[i, i, ]))
 
   print(paste(names(data)[2+i]))
   print(mulx_pred[i, ,])
@@ -450,7 +477,7 @@ axis(4)
 plot.window(xlim = c(1, n), ylim = c(min(data$Capital, data$Sealand, data$MidJutland, data$Rural, na.rm = T), max(data$Capital, data$Sealand, data$MidJutland, data$Rural, exp(mulx_forecast$forecasts[1, ]), na.rm = T)))
 for (i in 1:4) {
   lines(exp(mulx_forecast$forecasts[i, ]), lwd = 3)
-  matlines((ncol(data_mp) - 5):ncol(data_mp), exp(mulx_pred[i, 1:6, ]), lty = c(1, 2, 2), col = mulx_colors[i], lwd = 1)
+  matlines((ncol(data_mp) - 5):ncol(data_mp), mulx_pred[i, 1:6, ], lty = c(1, 2, 2), col = mulx_colors[i], lwd = 1)
   points(data$Time, data[, 2 + i], col = mulx_colors[i], pch = 20)
 }
 
@@ -483,7 +510,7 @@ axis(4)
 plot.window(xlim = c(110, n), ylim = c(min(data$Capital, data$Sealand, data$MidJutland, data$Rural, na.rm = T), max(data$Capital, data$Sealand, data$MidJutland, data$Rural, exp(mulx_forecast$forecasts[1, ]), na.rm = T)))
 for (i in 1:4) {
   lines(exp(mulx_forecast$forecasts[i, ]), col = mulx_colors[i], lwd = 3)
-  matlines((ncol(data_mp) - 5):ncol(data_mp), exp(mulx_pred[i, 1:6, ]), lty = c(1, 2, 2), col = mulx_colors[i], lwd = 1)
+  matlines((ncol(data_mp) - 5):ncol(data_mp), mulx_pred[i, 1:6, ], lty = c(1, 2, 2), col = mulx_colors[i], lwd = 1)
   points(data$Time, data[, 2 + i], col = mulx_colors[i], pch = 20)
 }
 
