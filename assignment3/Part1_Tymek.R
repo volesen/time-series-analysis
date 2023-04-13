@@ -24,6 +24,7 @@ library(forecast)
 library(nlme)
 library(urca)
 library(stats)
+library(lmtest)
 
 #reading data #####
 df <- data.frame(read.table("A3Data.csv", sep=",",header=TRUE))
@@ -207,6 +208,7 @@ summary(model_auto)
 m0 <- Arima(log(Denmark), order = c(0, 1, 0),
             seasonal = list(order = c(0, 0, 0), period = 4))
 summary(m0)
+tsdisplay(m0$residuals)
 summary(ur.kpss(m0$residuals))
 
 m1 <- Arima(log(Denmark), order = c(0, 1, 0),
@@ -252,14 +254,14 @@ c("AIC" = AIC(m6), "BIC" = BIC(m6))
 tsdisplay(m6$residuals)
 add_model_resulst(m6)
 
-m7 <- arima(log(Denmark), order = c(1, 0, 1),
-            seasonal = list(order = c(0, 1, 1), period = 4))
+m7 <- arima(log(Denmark), order = c(1, 1, 1),
+            seasonal = list(order = c(1, 1, 1), period = 4))
 summary(m7)
 # c("AIC" = AIC(m6), "BIC" = BIC(m6))
 tsdisplay(m7$residuals)
 add_model_resulst(m7)
 
-lrt(m3, m7)
+lrtest(m3, m7)
 lrt(m7, m3)
 
 ## AR vs differencing #####
@@ -484,21 +486,27 @@ summary(model_inflation)
 checkresiduals(model_inflation)
 tsdisplay(model_inflation)
 
+plot(diff(df_train$InflationRate, differences = 1))
+summary(ur.kpss(diff(df_train$InflationRate, differences = 1)))
+
+acf(df$InflationRate)
+pacf(df$InflationRate)
+
 arima_reg <- Arima(InflationRate, order = c(3, 1, 1),
-                   seasonal = list(order = c(0, 0, 0), period = 0))
+                   seasonal = list(order = c(0, 0, 1), period = 4))
 summary(arima_reg)
 # checkresiduals(m1)
 # ggtsdisplay(log(Denmark))
 tsdisplay(arima_reg$residuals)
 
 ## prewhitning ############
-pwy_Denmark <- Arima(Denmark, model=arima_reg)
+pwy_Denmark <- Arima(df_train$Denmark, model=arima_reg)
 pwx <- arima_reg$residuals
 
 ccf(pwx, pwy_Denmark$residuals, na.action=na.omit)
 acf(cbind(pwx, pwy_Denmark$residuals), na.action=na.omit)
 
-xreg_df = cbind(lag9x = stats::lag(InflationRate,-9))
+xreg_df = cbind(lag9x = stats::lag(ts(InflationRate),-9))
 
 m3_xreg <- Arima(log(Denmark), order = c(1, 1, 0),
                  seasonal = list(order = c(0, 1, 1), period = 4),
@@ -533,12 +541,21 @@ plot(InterestRate)
 plot(diff(sqrt(InterestRate), differences = 1))
 plot(diff(log(InterestRate), differences = 1))
 
-## 8.5.3 - doing it with the linear regression #####
+## 8.5.3 - doing it with the linear regression ##############################
+# Notice, that it is assumed
+# that both input and output series are mean-corrected.
+
+# AICc comparisons must have the same orders
+# of differencing. But RMSE test set comparisons
+# can involve any models
+# https://robjhyndman.com/uwafiles/8-Seasonal-ARIMA.pdf
+
+
 attach(df)
 library(stats)
 lags_max = 7
 
-InterestRate_ts = ts(df$InterestRate)
+InterestRate_ts = ts(df$InterestRate) - mean(df$InterestRate)
 df_InterestRate = cbind(InterestRate_ts,
           stats::lag(InterestRate_ts,-1),
           stats::lag(InterestRate_ts,-2),
@@ -548,7 +565,7 @@ df_InterestRate = cbind(InterestRate_ts,
           stats::lag(InterestRate_ts,-6),
           stats::lag(InterestRate_ts,-7))
 
-InflationRate_ts = ts(df$InflationRate)
+InflationRate_ts = ts(df$InflationRate) - mean(df$InflationRate)
 df_InflationRate = cbind(InflationRate_ts,
           stats::lag(InflationRate_ts,-1),
           stats::lag(InflationRate_ts,-2),
@@ -606,14 +623,69 @@ acf(lm_model_3$residuals)
 pacf(lm_model_3$residuals)
 
 # xreg_properly_differenced = cumsum(diffinv(df_train$InflationRate[1:length(df_train$Denmark)],4)[-(1:4)])
+InterestRate_tmp = ts(cumsum(diffinv(df$InterestRate,4)[-(1:4)]))
+InflationRate_tmp = ts(cumsum(diffinv(df$InflationRate,4)[-(1:4)]))
+
 xreg_properly_differenced = cbind(
-  cumsum(diffinv(df$InterestRate,4)[-(1:4)]),
-  cumsum(diffinv(df$InflationRate,4)[-(1:4)])
-  )
+  "InterestRate_lag0" = InterestRate_tmp,
+  "InflationRate_lag1" = stats::lag(InterestRate_tmp,-1),
+  "InflationRate_lag2" = stats::lag(InterestRate_tmp,-1),
+  "InflationRate_lag3" = stats::lag(InterestRate_tmp,-1),
+  "InflationRate_lag4" = stats::lag(InterestRate_tmp,-1),
+  "InflationRate_lag5" = stats::lag(InterestRate_tmp,-1),
+  "InflationRate_lag0" = InflationRate_tmp,
+  "InflationRate_lag1" = stats::lag(InflationRate_tmp,-1),
+  "InflationRate_lag2" = stats::lag(InflationRate_tmp,-2),
+  "InflationRate_lag3" = stats::lag(InflationRate_tmp,-3),
+  "InflationRate_lag4" = stats::lag(InflationRate_tmp,-4),
+  "InflationRate_lag5" = stats::lag(InflationRate_tmp,-5)
+)
+
+test_stuff = ts(cumsum(diffinv(df$InflationRate,4)[-(1:4)]))
+cbind(test_stuff, stats::lag(test_stuff,-1))
+
+data.frame(df_InflationRate)
+
 arima_xreg = Arima(log(df_train$Denmark), order = c(1, 1, 0),
                    seasonal = list(order = c(0, 1, 1), period = 4),
                    xreg = xreg_properly_differenced[1:nrow(df_train), ])
 summary(arima_xreg)
+
+
+
+arima_xreg_inflation = Arima(log(df_train$Denmark)[lags_number:length(df_train$Denmark)],
+                             order = c(1, 1, 0),
+                   seasonal = list(order = c(0, 1, 1), period = 4),
+                   xreg = xreg_properly_differenced[lags_number:nrow(df_train),
+                                                    "InflationRate_lag0"])
+summary(arima_xreg_inflation)
+
+lrt(arima_xreg, arima_xreg_inflation)
+lrt(m3, arima_xreg_inflation)
+lrtest(m3, arima_xreg_inflation)
+
+lags_number = 3
+################################################################
+arima_xreg_inflation_lag02 = Arima(log(df_train$Denmark)[lags_number:length(df_train$Denmark)], order = c(1, 1, 0),
+                             seasonal = list(order = c(0, 1, 1), period = 4),
+                             xreg = xreg_properly_differenced[lags_number:nrow(df_train),
+                                                              c("InflationRate_lag0")])
+summary(arima_xreg_inflation_lag02)
+
+lrtest(m3, arima_xreg_inflation_lag02)
+
+# lrtest(arima_xreg_inflation, arima_xreg_inflation_lag01)
+# c(AIC(arima_xreg_inflation), AIC(arima_xreg_inflation_lag01))
+
+arima_xreg_inflation_lag023 = Arima(log(df_train$Denmark)[lags_number:length(df_train$Denmark)], order = c(1, 1, 0),
+                                   seasonal = list(order = c(0, 1, 1), period = 4),
+                                   xreg = xreg_properly_differenced[lags_number:nrow(df_train),
+                                                                    c("InflationRate_lag0",
+                                                                      "InterestRate_lag1")])
+summary(arima_xreg_inflation_lag023)
+
+lrtest(arima_xreg_inflation_lag02, arima_xreg_inflation_lag023)
+
 
 m3 <- Arima(log(df_train$Denmark), order = c(1, 1, 0),
             seasonal = list(order = c(0, 1, 1), period = 4))
@@ -622,6 +694,9 @@ tsdisplay(m3$residuals)
 
 
 lrt(m3, arima_xreg)
+lrtest(m3, arima_xreg)
+
+
 c(AIC(arima_xreg), BIC(arima_xreg))
 # AIC is better, LRT doesn't reject the model
 # interest rates is lagged vs inflationa rate ???
@@ -635,9 +710,12 @@ predictions_xreg <- predict(arima_xreg, n.ahead = 6,
 
 # forecast.arima,h = 5, xreg=tf[114:length(tf)]
 
-predictions <- arima_xreg %>%
-  forecast(h=6, xreg = tail(xreg_properly_differenced, 6))
+predictions <- a
 exp(predictions)
+
+arima_xreg %>%
+  forecast(h=6, xreg = tail(xreg_properly_differenced, 6)) %>% 
+  autoplot
 
 %>%
   autoplot
@@ -648,4 +726,8 @@ m3 %>% forecast(h=6) %>% autoplot
 plot(exp(c(predictions$fitted, predictions$mean)))
 abline(v = 122)
 
+plot(log(df_train$Denmark), type = "p")
+lines(m3$fitted, col = "red")
+
+acf(cbind(df$InflationRate, df$InterestRate))
 
