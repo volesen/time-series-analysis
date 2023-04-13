@@ -202,6 +202,9 @@ x_reg <- data.matrix(x_reg)
 # WARN: Hard-coded values from dataset
 x_reg[is.na(x_reg)] <- matrix(c(1.925, 8.04580152671754), ncol = 2, nrow = 4, byrow = T)
 
+x_reg_diff <- apply(diffinv(data.matrix(x_reg), 4)[-(1:4), ], 2, cumsum)
+
+
 unix_model <- Arima(
   na.omit(data$Denmark),
   include.mean = T,
@@ -209,7 +212,7 @@ unix_model <- Arima(
   seasonal = list(order = c(0, 1, 1), period = 4),
   lambda = 0,
   biasadj = T,
-  xreg = apply(diffinv(data.matrix(x_reg)[1:n_uni_res, ], 4)[-(1:4), ], 2, cumsum)
+  xreg = head(x_reg_diff, n_uni_res)
 )
 
 
@@ -245,7 +248,7 @@ since the model is differencing the external inputs internally.
 
 ## Forecasting with external inputs
 ```{R}
-unix_model_forecast <- forecast(unix_model, h = 6, level = c(95), xreg = apply(diffinv(x_reg[(n_uni_res+1):(n_uni_res+6), ], 4)[-(1:4), ], 2, cumsum))
+unix_model_forecast <- forecast(unix_model, h = 6, level = c(95), xreg = tail(x_reg_diff, 6))
 
 print("Mean")
 unix_model_forecast$mean
@@ -354,6 +357,8 @@ mulx_model_params <- define.model(
   kvar = 6,
   ar = c(1),
   ma = c(1),
+  # rem.var = c(5),
+  # reg.var = c(6)
   reg.var = c(5, 6)
 )
 data_m <- t(cbind(
