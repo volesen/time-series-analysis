@@ -38,6 +38,8 @@ which(is.na(data$DateTime)) # index 4608
 # I used this tutroial to do the inset plots
 # https://www.r-bloggers.com/2016/10/create-an-inset-plot/
 
+# Lets start with choosing the 
+
 # Lets start with an inset plot
 par(fig = c(0, 1, 0, 1))
 plot(
@@ -75,20 +77,24 @@ plot(
 )
 
 margin <- 0.025
-par(fig = c(0.5, 1-margin, 0.1, 0.7), new = TRUE)
+par(fig = c(0.5, 1-margin, 0.05, 0.7), new = TRUE)
 plot(
   data$DateTime,
   data$ODO,
   type = 'p',
   cex  = 0.25,
   xlim = as.POSIXct(c("2017-11-30", "2017-12-06")),
-  ylim = c(10.5, 11.5),
-  axes = FALSE,
-  frame.plot = TRUE,
-  ann = FALSE
+  #ylim = c(10.5, 11.5),
+  #frame.plot = TRUE,
+  #ann = FALSE
 )
 
 
+axis(1, at = seq(as.POSIXct("2017-11-30"), as.POSIXct("2017-12-06"), by = "day"), format = "%d-%m-%Y")
+
+
+
 # Q2
+seq(as.POSIXct("2017-11-30"), as.POSIXct("2017-12-06"), by = "day")
 
 
