@@ -221,7 +221,7 @@ log.lik <- function(par) {
 
 low <- (0.005) ^ 2
 
-vars.opt <-
+opt <-
   optim(
     par = log(c(0.01, 0.005)),
     fn = log.lik,
@@ -230,4 +230,10 @@ vars.opt <-
     hessian = TRUE
   )
 
-exp(vars.opt$par)
+opt.par <- exp(opt$par)
+opt.par
+
+opt.std <- sqrt(diag(solve(opt$hessian)))
+exp(opt.std)
+exp(opt$par[1] + c(-1.96, 1.96) * opt.std[1])
+exp(opt$par[2] + c(-1.96, 1.96) * opt.std[2])
