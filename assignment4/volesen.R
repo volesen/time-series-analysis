@@ -1,19 +1,19 @@
 library(dplyr)
 library(readr)
+library(grid)
+library(ggplot2)
 
 data <- read_csv("./A4_Kulhuse.csv")
-
-print(data[rowSums(is.na(data)) > 0, ], n = 111)
 
 # Are there missing values?
 data %>%
   filter(if_any(everything(), is.na))
 
 # So, there is missing rows
-#datetimes.missing <-
-#  data %>%
-#  filter(if_any(everything(), is.na)) %>%
-#  select(DateTime)
+datetimes.missing <-
+  data %>%
+  filter(if_any(everything(), is.na)) %>%
+  select(DateTime)
 
 # The missing times are
 # 2017-09-26 12:00:00 - 2017-09-28 16:00:00 (including)
@@ -33,15 +33,31 @@ which(is.na(data$DateTime)) # index 4608
 # We can safely omit it
 
 
-# Q1
+# Q1 ----
+# Lets start with choosing the last week of data
+last_week <- data %>% slice_tail(n = 2 * 24 * 7)
 
-# I used this tutroial to do the inset plots
-# https://www.r-bloggers.com/2016/10/create-an-inset-plot/
+par(mfrow=c(1, 2))
 
-# Lets start with choosing the
+ggplot(data,
+       aes(DateTime, Sal)) +
+  geom_point(size = 0.5) +
+  xlab("Time [30 min.]") +
+  ylab("Salinity [PSU]") +
+  theme_light()
+
+
+ggplot(last_week,
+       aes(DateTime, Sal)) +
+  geom_point(size = 0.5) +
+  xlab("Time [30 min.]") +
+  ylab("Salinity [PSU]") +
+  theme_bw()
+
 
 # Lets start with an inset plot
-par(fig = c(0, 1, 0, 1))
+png(filename="sal.png", units="mm", width=200, height=100, res=300)
+par(mfrow = c(1, 2))
 plot(
   data$DateTime,
   data$Sal,
@@ -50,23 +66,19 @@ plot(
   xlab = 'Time [30 min.]',
   ylab = 'Salinity [PSU]'
 )
-
-margin <- 0.025
-par(fig = c(0.5, 1 - margin, 0.2, 0.8), new = TRUE)
 plot(
-  data$DateTime,
-  data$Sal,
+  last_week$DateTime,
+  last_week$Sal,
   type = 'p',
   cex  = 0.25,
-  xlim = as.POSIXct(c("2017-11-30", "2017-12-06")),
-  ylim = c(17, 22),
-  axes = FALSE,
-  frame.plot = TRUE,
-  ann = FALSE
+  xlab = 'Time [30 min.]',
+  ylab = 'Salinity [PSU]'
 )
+dev.off()
 
 # Plot 2
-par(fig = c(0, 1, 0, 1))
+png(filename="odo.png", units="mm", width=200, height=100, res=300)
+par(mfrow = c(1, 2))
 plot(
   data$DateTime,
   data$ODO,
@@ -75,44 +87,27 @@ plot(
   xlab = 'Time [30 min.]',
   ylab = 'Dissolved oxygen [mg/L]'
 )
-
-margin <- 0.025
-par(fig = c(0.5, 1 - margin, 0.05, 0.7), new = TRUE)
 plot(
-  data$DateTime,
-  data$ODO,
+  last_week$DateTime,
+  last_week$ODO,
   type = 'p',
   cex  = 0.25,
-  xlim = as.POSIXct(c("2017-11-30", "2017-12-06")),
-  ylim = c(10.5, 11.5),
-  frame.plot = TRUE,
-  ann = FALSE,
-  axis = FALSE
+  xlab = 'Time [30 min.]',
+  ylab = 'Dissolved oxygen [mg/L]'
 )
-
-
-# Q2
 dev.off()
-plot(
-  data$DateTime,
-  data$ODO,
-  type = 'p',
-  cex  = 0.25,
-  xlim = as.POSIXct(c("2017-11-30", "2017-12-06")),
-  ylim = c(10.5, 11.5),
-  frame.plot = TRUE,
-  ann = FALSE,
-  axis = FALSE
-)
 
+# Q2 ----
+# See latex
 
-# Q3
-A <- matrix(c(1), nrow = 1)
-C <- matrix(c(1), nrow = 1)
-Sigma.1 <- matrix(c(0.01), nrow = 1) # System variance
-Sigma.2 <- matrix(c(0.005), nrow = 1) # observation variance
-
+# Q3 ----
 source("./kalman.R")
+
+A <- matrix(1)
+C <- matrix(1)
+
+Sigma.1 <- matrix(0.01) # System variance
+Sigma.2 <- matrix(0.005) # observation variance
 
 X0 <- data$Sal[1]
 
@@ -127,8 +122,14 @@ k1 <-
     verbose = TRUE
   )
 
-pred.sigma <- as.vector(k1$Sigma.yy.pred)
+## One-step predictions and residuals ----
+pred = k1$pred[1:length(data$Sal)]
+pred_sigma = sqrt(k1$Sigma.yy.pred[1:length(data$Sal)])
 
+lower = pred - 1.96 * pred_sigma
+upper = pred + 1.96 * pred_sigma
+
+par(mfrow=c(1,1))
 plot(
   data$DateTime,
   data$Sal,
@@ -137,11 +138,13 @@ plot(
   xlab = 'Time [30 min.]',
   ylab = 'Salinity [PSU]'
 )
-lines(data$DateTime, k1$pred[1:5000], col = "red")
-lower = k1$pred - 1.96 * sqrt(pred.sigma)
-upper = k1$pred + 1.96 * sqrt(pred.sigma)
-lines(data$DateTime, lower[1:5000], col = "red", lty = 2)
-lines(data$DateTime, upper[1:5000], col = "red", lty = 2)
+lines(data$DateTime, pred, col = "red")
+lines(data$DateTime, lower, col = "red", lty = 2)
+lines(data$DateTime, upper, col = "red", lty = 2)
+
+
+
+##
 
 # Standardized prediction error
 residuals = (data$Sal - k1$pred[1:length(data$Sal), 1])
@@ -150,7 +153,7 @@ residuals.std = residuals / sqrt(k1$Sigma.xx.pred[1, 1, 1:length(data$Sal)])
 plot(residuals.std)
 
 
-
+# Q4 ----
 source("./kalman.modified.R")
 
 k2 <-
@@ -223,7 +226,7 @@ low <- (0.005) ^ 2
 
 opt <-
   optim(
-    par = log(c(0.01, 0.005)),
+    par = log(c(0.00, 0.005)),
     fn = log.lik,
     method = "L-BFGS-B",
     lower = log(c(0, low)),
