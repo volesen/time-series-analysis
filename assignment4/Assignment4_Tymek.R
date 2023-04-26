@@ -24,7 +24,7 @@ library(urca)
 library(stats)
 library(lmtest)
 
-#reading data #####
+# reading data #####
 df <- data.frame(read.table("A4_Kulhuse.csv", sep=",",header=TRUE))
 head(df)
 dim(df)
@@ -83,37 +83,58 @@ names(k_pure)
 #          col= "red",lty=c(1,2,2))
 
 ## plotting predictions all ######
-par(mfrow = c(1, 1))
-plot(Y)
+residuals = Y - k_pure$pred[1:length(Y), 1]
+residuals_sd = (residuals - mean(residuals, na.rm = T))/
+  sqrt(k_pure$Sigma.xx.pred[1, 1,1:length(Y)])
+
+par(mfrow = c(1, 2))
+plot(Y,
+     ylab = "Salinity [PSU]")
+lines(outliers_sal, Y[outliers_sal], type = "p", col = "blue",
+      lwd = 2)
+lines(outliers_sal, Y[outliers_sal], type = "p", col = "blue")
 sd <- sqrt(k_pure$Sigma.xx.pred[1,1,])
 matlines(k_pure$pred[,1] + qnorm(0.975)*cbind(0,sd,-sd),
          col= "red",lty=c(1,2,2))
-
-plot(y_no_outliers)
-matlines(k_pure$pred[,1] + qnorm(0.975)*cbind(0,sd,-sd),
-         col= "red",lty=c(1,2,2))
-
-residuals = Y - k_pure$pred[1:length(Y), 1]
-residuals_sd = (residuals - mean(residuals, na.rm = T))/
-  k_pure$Sigma.xx.pred[1, 1,1:length(Y)]
+# par(mfrow = c(1, 1))
 plot(residuals_sd)
+lines(outliers_sal, residuals_sd[outliers_sal], type = "p", col = "blue",
+      lwd = 2)
+
+# plot(y_no_outliers)
+# matlines(k_pure$pred[,1] + qnorm(0.975)*cbind(0,sd,-sd),
+#          col= "red",lty=c(1,2,2))
+# 
+# 
+# par(mfrow = c(1, 2))
+# Acf(residuals_sd, na.action = na.pass)
+# Pacf(residuals_sd, na.action = na.pass)
+
 
 ## zooming in ####
 begining_zoom = 800
 end_zoom = 950
 range_zoom = seq(from = begining_zoom, to = end_zoom)
+outliers_sal_zoom = outliers_sal[outliers_sal %in% range_zoom]
 
-plot(Y[range_zoom])
-matlines(k_pure$pred[range_zoom,1] + qnorm(0.975)*
+par(mfrow = c(1, 2))
+plot(range_zoom, Y[range_zoom],
+     ylab = "Salinity [PSU]",
+     xlab = "Index")
+lines(outliers_sal_zoom, Y[outliers_sal_zoom],
+      type = "p", col = "blue", lwd = 2)
+
+sd <- sqrt(k_pure$Sigma.xx.pred[1,1,])
+matlines(range_zoom,
+         k_pure$pred[range_zoom,1] + qnorm(0.975)*
            cbind(0,sd[range_zoom],-sd[range_zoom]),
          col= "red",lty=c(1,2,2))
 
-plot(y_no_outliers[range_zoom])
-matlines(k_pure$pred[range_zoom,1] + qnorm(0.975)*
-           cbind(0,sd[range_zoom],-sd[range_zoom]),
-         col= "red",lty=c(1,2,2))
-
-plot(range_zoom, residuals_sd[range_zoom])
+plot(range_zoom, residuals_sd[range_zoom],
+     ylab = "Standarized residuals",
+     xlab = "Index")
+lines(outliers_sal_zoom, residuals_sd[outliers_sal_zoom],
+      type = "p", col = "blue", lwd = 2)
 
 # Report the values that defines the 
 # final state of the filter (at observation 5000).
@@ -121,20 +142,84 @@ plot(range_zoom, residuals_sd[range_zoom])
 k_pure$rec[length(Y),1]
 # 20.75815
 
-# ## no outliers primitive ##########
-# k2 <- kalman(Y=y_no_outliers, A=A, C=C, Sigma.1=Sigma1, Sigma.2=Sigma2,
-#              Xhat0=X0, verbose=TRUE)
-# 
-# par(mfrow = c(1, 1))
-# plot(y_no_outliers)
-# sd <- sqrt(k2$Sigma.xx.rec[1,1,])
-# matlines(k2$rec[,1] + qnorm(0.975)*cbind(0,c(0,sd), c(0,-sd)),
-#          col= "red",lty=c(1,2,2))
-
-
 # Question 4.4: Skipping outliers when filtering # -----------------------------
 k_skipping_outliers <- kalman(Y=Y, A=A, C=C, Sigma.1=Sigma1, Sigma.2=Sigma2,
              Xhat0=X0, verbose=TRUE, rule_6sd = TRUE)
+
+residuals = Y - k_skipping_outliers$pred[1:length(Y), 1]
+residuals_sd_skipped = (residuals - mean(residuals, na.rm = T))/
+  sqrt(k_pure$Sigma.xx.pred[1, 1,1:length(Y)])
+
+sum(!k_skipping_outliers$within_range_vector, na.rm = T)
+# 10 observetaions were classified as outliers
+# indexes of classified observations
+skipped_observations = seq(length(Y))[!k_skipping_outliers$within_range_vector] %>%
+  na.omit() %>% as.numeric()
+skipped_observations
+
+## Plotting #######
+
+### Zooming in ######
+no_outliers = k_skipping_outliers$within_range_vector[range_zoom]
+begining_zoom = 800
+end_zoom = 950
+range_zoom = seq(from = begining_zoom, to = end_zoom)
+outliers_sal_zoom = skipped_observations[skipped_observations %in% range_zoom]
+
+par(mfrow = c(1, 2))
+plot(range_zoom, Y[range_zoom],
+     ylab = "Salinity [PSU]",
+     xlab = "Index")
+
+sd <- sqrt(k_skipping_outliers$Sigma.xx.pred[1,1,])
+matlines(range_zoom,
+         k_skipping_outliers$pred[range_zoom, 1]
+         + qnorm(0.975)*
+           cbind(0,sd[range_zoom],
+                 -sd[range_zoom]),
+         col= "red",lty=c(1,2,2))
+abline(v = outliers_sal_zoom, col = "green")
+
+plot(range_zoom[no_outliers], residuals_sd_skipped[range_zoom][no_outliers],
+     ylab = "Standarized residuals",
+     xlab = "Index")
+abline(h = 0, col = "blue")
+abline(v = outliers_sal_zoom, col = "green")
+
+### Full plot ######
+par(mfrow = c(1, 2))
+plot(Y, ylab = "Salinity [PSU]",
+     xlab = "Index")
+
+sd <- sqrt(k_skipping_outliers$Sigma.xx.pred[1,1,])
+matlines(seq(length(Y)),
+         k_skipping_outliers$pred[seq(length(Y)), 1]
+         + qnorm(0.975)*
+           cbind(0,sd[seq(length(Y))],
+                 -sd[seq(length(Y))]),
+         col= "red",lty=c(1,2,2))
+abline(v = outliers_sal_zoom, col = "green")
+
+plot(residuals_sd_skipped[range_zoom][no_outliers],
+     ylab = "Standarized residuals",
+     xlab = "Index")
+abline(h = 0, col = "blue")
+abline(v = outliers_sal_zoom, col = "green")
+
+residuals_true = residuals_sd_skipped
+residuals_true[seq(length(residuals_sd_skipped)) %in%
+                 skipped_observations] = NA
+
+plot(residuals_true)
+
+par(mfrow = c(1, 2))
+Acf(residuals_true, na.action = na.pass, main = "")
+Pacf(residuals_true, na.action = na.pass, main = "")
+
+par(mfrow = c(1, 1))
+plot(residuals_true, type = "p")
+arima_residuals = Arima(residuals_true, order = c(4, 0, 1))
+tsdisplay(arima_residuals$residuals)
 
 ## Plotting predictions ####
 par(mfrow = c(1, 1))
@@ -143,6 +228,16 @@ sd <- sqrt(k_skipping_outliers$Sigma.xx.pred[1,1,])
 matlines(k_skipping_outliers$pred[,1] + qnorm(0.975)*cbind(0,sd,-sd),
          col= "red",lty=c(1,2,2))
 
+investigation = 
+  
+par(mfrow = c(1, 2))
+plot(k_skipping_outliers$pred)
+lines(k_skipping_outliers$rec, type = "p", col = "red")
+plot(k_skipping_outliers$pred - k_skipping_outliers$rec)
+
+Acf(k_skipping_outliers$pred - k_skipping_outliers$rec,
+    na.action = na.pass)
+
 ## Zooming in #####
 plot(range_zoom, Y[range_zoom])
 matlines(range_zoom,
@@ -150,25 +245,11 @@ matlines(range_zoom,
            cbind(0,sd[range_zoom],-sd[range_zoom]),
          col= "red",lty=c(1,2,2))
 
-# plot(y_no_outliers[range_zoom])
-# matlines(k_skipping_outliers$pred[range_zoom,1] + qnorm(0.975)*
-#            cbind(0,sd[range_zoom],-sd[range_zoom]),
-#          col= "red",lty=c(1,2,2))
-
-sum(!k_skipping_outliers$within_range_vector, na.rm = T)
-# 10 observetaions were classified as outliers
-# indexes of classified observations
-seq(length(Y))[!k_skipping_outliers$within_range_vector] %>%
-  na.omit() %>% as.numeric()
-
 # RECONSTRUCTION
 k_skipping_outliers$rec[length(Y),1]
 # 20.75815
 
 # Question 4.5: Optimizing the variances # -------------------------------------
-plot(seq(end_zoom), Y[seq(end_zoom)])
-abline(v = begining_zoom)
-# isn't the variance increasing?
 
 source("kalman_Tymek.R")
 library(numDeriv)
@@ -177,6 +258,25 @@ A = matrix(1)
 C = matrix(1)
 Y = df$Sal
 X0 = Y[1]
+
+plot(seq(end_zoom), Y[seq(end_zoom)])
+abline(v = begining_zoom)
+# isn't the variance increasing?
+sd_800 = sd(Y[seq(begining_zoom)])
+
+theta_initial = c("sigma2_system" = log(0.01),
+                  "sigma2_observation" = log(sigma2_observation_empirical))
+
+kalman_test = kalman(Y=Ypart, A=A, C=C,
+       Sigma.1 = matrix(exp(theta_initial["sigma2_system"])),
+       Sigma.2 = matrix(exp(theta_initial["sigma2_observation"])),
+       Xhat0=X0, verbose=TRUE, rule_6sd = TRUE,
+       rule_6sd_optimization_value = sd_800)
+
+kalman_test$sd_vector
+plot(sqrt(kalman_test$Sigma.yy.pred[1, 1,]))
+
+results
 
 begining_optimizatioin = 1
 end_optimization = 800
@@ -190,7 +290,14 @@ objective <- function(theta){
   k_optimization <- kalman(Y=Ypart, A=A, C=C,
                            Sigma.1 = matrix(exp(theta["sigma2_system"])),
                            Sigma.2 = matrix(exp(theta["sigma2_observation"])),
-               Xhat0=X0, verbose=TRUE, rule_6sd = TRUE)
+               Xhat0=X0, verbose=TRUE, rule_6sd = TRUE,
+               rule_6sd_optimization_value = sd_800)
+  print(
+    c(k_optimization$Sigma.yy.rec[1, 1,dim(k_optimization$Sigma.yy.rec)[3]],
+      k_optimization$Sigma.yy.pred[1, 1,dim(k_optimization$Sigma.yy.pred)[3]],
+      k_optimization$Sigma.xx.rec[1, 1,dim(k_optimization$Sigma.xx.rec)[3]],
+      k_optimization$Sigma.xx.pred[1, 1,dim(k_optimization$Sigma.xx.pred)[3]])
+    )
   
   nepso <- (Ypart[-1] - k_optimization$pred[-c(1, length(Ypart) + 1),1])^2 /
     k_optimization$Sigma.yy.pred[1,1,-c(1, length(Ypart) + 1)]
@@ -205,23 +312,67 @@ sigma2_observation_empirical = var(Ypart, na.rm = T)
 theta_initial = c("sigma2_system" = log(0.01),
                   "sigma2_observation" = log(sigma2_observation_empirical))
 # sanity check
-objective(theta_initial)
+# objective(theta_initial)
 
 opt = nlminb(theta_initial, objective)
-opt
+opt$par
+exp(opt$par)
 round(exp(opt$par), 6)
 
-Sigma1_ml = matrix(exp(opt$par)["sigma2_system"])
-Sigma2_ml = matrix(exp(opt$par)["sigma2_observation"])
+objective_forced <- function(theta_forced){
+  
+  k_optimization <- kalman(Y=Ypart, A=A, C=C,
+                           Sigma.1 = matrix(exp(theta_forced["sigma2_system"])),
+                           Sigma.2 = matrix(0),
+                           Xhat0=X0, verbose=TRUE, rule_6sd = TRUE,
+                           rule_6sd_optimization_value = sd_800)
+  # print(
+  #   c(k_optimization$Sigma.yy.rec[1, 1,dim(k_optimization$Sigma.yy.rec)[3]],
+  #     k_optimization$Sigma.yy.pred[1, 1,dim(k_optimization$Sigma.yy.pred)[3]],
+  #     k_optimization$Sigma.xx.rec[1, 1,dim(k_optimization$Sigma.xx.rec)[3]],
+  #     k_optimization$Sigma.xx.pred[1, 1,dim(k_optimization$Sigma.xx.pred)[3]])
+  # )
+  # 
+  nepso <- (Ypart[-1] - k_optimization$pred[-c(1, length(Ypart) + 1),1])^2 /
+    k_optimization$Sigma.yy.pred[1,1,-c(1, length(Ypart) + 1)]
+  
+  # return the negative log likelihood
+  return(0.5 * sum(nepso + log(k_optimization$Sigma.yy.pred[1,1,-c(1, length(Ypart) + 1)]),
+                   na.rm = TRUE))
+}
+theta_initial_forced = c("sigma2_system" = log(0.01))
+
+opt_forced = nlminb(theta_initial_forced, objective_forced)
+opt_forced$par
+exp(opt_forced$par)
+round(exp(opt_forced$par), 6)
+
+# the likelihoods are the same - hence we can set variance of sigma 
+# observations to 0. Value: -2106.553
+opt_forced$objective
+opt$objective
+
+Sigma1_ml = matrix(exp(opt_forced$par))
+Sigma2_ml = matrix(0)
 
 k_final = kalman(Y=Y, A=A, C=C,
                  Sigma.1 = Sigma1_ml,
                  Sigma.2 = Sigma2_ml,
                  Xhat0=X0, verbose=TRUE, rule_6sd = TRUE)
 
+residuals_final = Y - k_final$pred[1:length(Y), 1]
+residuals_final_skipped = (residuals_final - mean(residuals_final, na.rm = T))/
+  sqrt(k_final$Sigma.xx.pred[1, 1,1:length(Y)])
+
 ## zooming in ####
 # range_zoom = seq(length(Y))
-plot(range_zoom, Y[range_zoom], ylim = c(17, 19))
+
+layout(matrix(c(1, 1, 2), nrow=1, byrow=TRUE))
+
+range_zoom = seq(800, 950)
+plot(range_zoom, Y[range_zoom], ylim = c(17, 18.5),
+     ylab = "Y", xlab = "Index", main="")
+grid()
 sd_ml <- sqrt(k_final$Sigma.xx.pred[1,1,])
 matlines(range_zoom,
          k_final$pred[range_zoom,1] + qnorm(0.975)*
@@ -232,12 +383,45 @@ matlines(range_zoom,
          k_skipping_outliers$pred[range_zoom,1] + qnorm(0.975)*
            cbind(0,sd_3[range_zoom],-sd_3[range_zoom]),
          col= "blue",lty=c(1,2,2))
-legend("topright",
+abline(v = c(887, 894), col = "green")
+legend("top",
        legend=c(
-         "Kalman ML optimized", "95 CI",
-         "Kalman skipping outliers", "95 CI"),
+         "Kalman ML optimized", "95 PI",
+         "Kalman skipping outliers", "95 PI"),
        col=c("red","red", "blue", "blue"), lty=c(1,2, 1, 2))
 
+range_zoom = seq(880, 900)
+plot(range_zoom, Y[range_zoom], ylim = c(17, 18.5),
+     ylab = "Y", xlab = "Index", main="")
+grid()
+sd_ml <- sqrt(k_final$Sigma.xx.pred[1,1,])
+matlines(range_zoom,
+         k_final$pred[range_zoom,1] + qnorm(0.975)*
+           cbind(0,sd_ml[range_zoom],-sd_ml[range_zoom]),
+         col= "red",lty=c(1,2,2))
+sd_3 <- sqrt(k_skipping_outliers$Sigma.xx.pred[1,1,])
+matlines(range_zoom,
+         k_skipping_outliers$pred[range_zoom,1] + qnorm(0.975)*
+           cbind(0,sd_3[range_zoom],-sd_3[range_zoom]),
+         col= "blue",lty=c(1,2,2))
+abline(v = c(887, 894), col = "green")
+legend("top",
+       legend=c(
+         "Kalman ML optimized", "95 PI",
+         "Kalman skipping outliers", "95 PI"),
+       col=c("red","red", "blue", "blue"), lty=c(1,2, 1, 2))
+
+
+residuals_sd_skipped[range_zoom][no_outliers]
+residuals_final_skipped
+
+par(mfrow = c(2, 2))
+plot(residuals_sd_skipped[range_zoom][no_outliers])
+plot(residuals_final_skipped[range_zoom][no_outliers],
+      type = "p", col = "red")
+plot(residuals[range_zoom][no_outliers])
+plot(residuals_final[range_zoom][no_outliers],
+     type = "p", col = "red")
 
 ## full plots ####
 plot(Y)

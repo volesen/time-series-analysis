@@ -1,6 +1,7 @@
 kalman <- function(Y,A,B=NULL,u=NULL,C,Sigma.1=NULL,Sigma.2=NULL,
                    debug=FALSE,V0=Sigma.1,Xhat0=NULL,n.ahead=1,
-                   skip=0,verbose=FALSE, rule_6sd = FALSE){
+                   skip=0,verbose=FALSE, rule_6sd = FALSE,
+                   rule_6sd_optimization_value = NULL){
 
   ## predictions through data are one-step predictions. n.ahead means
   ## how long we must keep predict after data. These are of course
@@ -62,6 +63,7 @@ kalman <- function(Y,A,B=NULL,u=NULL,C,Sigma.1=NULL,Sigma.2=NULL,
   }
   
   within_range_vector = rep(NA, dim.Y[1])
+  sd_vector = rep(NA, dim.Y[1])
 
 
   for(tt in (skip+1):dim.Y[1]){
@@ -73,7 +75,14 @@ kalman <- function(Y,A,B=NULL,u=NULL,C,Sigma.1=NULL,Sigma.2=NULL,
       
       Y_hat <- C %*% as.matrix(X.hat)
       if(rule_6sd){
-        sd <- sqrt(as.numeric(Sigma.yy[1, 1]))
+        if(is.null(rule_6sd_optimization_value)){
+          sd <- sqrt(as.numeric(Sigma.yy[1, 1]))
+        }
+        else{
+          sd <- rule_6sd_optimization_value
+        }
+        
+        sd_vector[tt] = sd
         within_range = (Y[tt,] > (Y_hat - 6*sd) && Y[tt,] < (Y_hat + 6*sd))
         within_range_vector[tt] = within_range
         
@@ -128,7 +137,8 @@ if(n.ahead>1){
   if(verbose){
       out <- list(rec=X.rec,pred=X.pred,K=K.out,Sigma.xx.rec=Sigma.xx.rec,
                   Sigma.yy.rec=Sigma.yy.rec,Sigma.xx.pred=Sigma.xx.pred,
-                  Sigma.yy.pred=Sigma.yy.pred, within_range_vector = within_range_vector)
+                  Sigma.yy.pred=Sigma.yy.pred, within_range_vector = within_range_vector,
+                  sd_vector = sd_vector)
   } else {
       out <- list(rec=X.rec,pred=X.pred)
   }
