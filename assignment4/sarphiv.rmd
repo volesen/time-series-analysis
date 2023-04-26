@@ -1,0 +1,236 @@
+---
+title: Assignment 4
+author: sarphiv
+output:
+  bookdown::html_document2: default
+  bookdown::pdf_document2: default
+---
+```{r include = FALSE}
+# Disable inclusion of code chunks in the output
+knitr::opts_chunk$set(echo = FALSE)
+library("stats")
+library("dplyr")
+
+set.seed(1337)
+
+
+# Function to reset the default parameters
+par_defaults <- par(no.readonly = TRUE)
+par_reset <- function() {
+  par(par_defaults)
+}
+```
+
+```{R}
+# Load the data
+data <- read.csv("A4_Kulhuse.csv", header = TRUE, sep = ",")
+oxygen <- data$ODO
+salinity <- data$Sal
+time <- as.POSIXct(dplyr::pull(data, DateTime))
+time_rel <- as.numeric(as.POSIXct(dplyr::pull(data, DateTime)))
+time_rel <- (time_rel - time_rel[1])
+time_delta <- mean(diff(time_rel), na.rm = T)
+time_rel <- time_rel / time_delta
+
+# Length
+n <- length(time_rel)
+```
+
+#
+```{R}
+par(mfrow = c(2, 2))
+plot(time, oxygen, type='l')
+plot(time, salinity, type='l')
+plot(oxygen, salinity)
+boxplot(oxygen, salinity)
+```
+
+#
+Example 10.6 may be relevant for further detail.
+
+Assuming stationary dynamics. 
+$$
+X_t = X_{t-1} + \epsilon_t
+$$
+
+Must find variance of $\epsilon_t \sim \mathcal{N}(0, \sigma)$.
+
+It is assumed that the salinity is measured directly, but with independent measurement noise.
+$$
+Y_t = X_t + \eta_t
+$$
+
+According to section 10.1, the matrices are given as
+$$
+A = I\\
+B = 0\\
+C = I
+$$
+
+
+#
+```{R}
+kalman <- function(A, C, X.var, Y.var, X0.pred, X0.pred.var, Y, n.ahead=1, B=NULL, u=NULL, outlier_sd=NULL, verbose=NULL) {
+  # NOTE: Implementation is according to theorem 10.2
+  #  Assuming stationary dynamics.
+
+  # Initialize state and variance variables
+  n <- length(Y) + n.ahead
+
+  X.dim <- dim(X0.pred)[1]
+  Y.dim <- dim(C)[1]
+
+  X.recon     <- lapply(1:n, function(x) rep(NA, X.dim))
+  X.recon.var <- lapply(1:n, function(x) matrix(NA, nrow = X.dim, ncol = X.dim))
+  
+  X.pred      <- lapply(1:n, function(x) rep(NA, X.dim))
+  X.pred.var  <- lapply(1:n, function(x) matrix(NA, nrow = X.dim, ncol=X.dim))
+
+  Y.pred.var  <- lapply(1:n, function(x) matrix(NA, nrow = Y.dim, ncol = Y.dim))
+
+
+  # Initialize optional arguments
+  if (is.null(u)) {
+    u <- matrix(0, nrow = 1, ncol = n)
+  }
+  if (is.null(B)) {
+    B <- matrix(0, nrow = X.dim, ncol = dim(u)[1])
+  }
+
+
+  # Helper functions
+  recon.calc <- function(i) {
+    # If missing observation, set reconstruction to prediction
+    if (i > length(Y) || any(is.na(Y[[i]]))) {
+      X.recon[[i]] <<- X.pred[[i]]
+      X.recon.var[[i]] <<- X.pred.var[[i]]
+
+      if ("missing" %in% verbose) {
+        cat("Missing:", i, "\n")
+      }
+
+      return()
+    }
+
+
+    # Mahalanobis distance for outlier detection
+    Y.error <- abs(Y[[i]] - C %*% X.pred[[i]])
+    Y.error.sd <- sqrt((t(Y.error) %*% solve(Y.pred.var[[i]]) %*% Y.error) / Y.dim)
+
+    # If outlier and outlier_sd is set, set reconstruction to prediction
+    if (!is.null(outlier_sd) && (Y.error.sd > outlier_sd)) {
+      X.recon[[i]] <<- X.pred[[i]]
+      X.recon.var[[i]] <<- X.pred.var[[i]]
+
+      if ("outlier" %in% verbose) {
+        cat("Outlier:", i, "Sd:", Y.error.sd, "\n")
+      }
+    }
+    # Else, reconstruct
+    else {
+      K <- X.pred.var[[i]] %*% t(C) %*% solve(Y.pred.var[[i]])
+
+      X.recon[[i]] <<- X.pred[[i]] + K %*% (Y[[i]] - C %*% X.pred[[i]])
+      X.recon.var[[i]] <<- X.pred.var[[i]] - K %*% C %*% X.pred.var[[i]]
+    }
+
+  }
+
+  pred.calc <- function(i) {
+    X.pred[[i]] <<- A %*% X.recon[[i-1]] + B %*% u[[i-1]]
+    X.pred.var[[i]] <<- A %*% X.recon.var[[i-1]] %*% t(A) + X.var
+    Y.pred.var[[i]] <<- C %*% X.pred.var[[i]] %*% t(C) + Y.var
+  }
+
+
+  # NOTE: Initial predictions set according to theorem 10.2.
+  #  Not setting reconstruction directly as in lecture notes,
+  #  as it would not incorporate dynamics and the first observation.
+  X.pred[[1]] <- X0.pred
+  X.pred.var[[1]] <- X0.pred.var
+
+  Y.pred.var[[1]] <- C %*% X.pred.var[[1]] %*% t(C) + Y.var
+
+  # Initial reconstruction
+  recon.calc(1)
+
+
+  # Kalman filter iterative implementation of recursion
+  for (i in 2:n) {
+    pred.calc(i)
+    recon.calc(i)
+  }
+
+
+  # Return reconstructed and predicted values
+  return(list(
+    X.recon     = X.recon,
+    X.recon.var = X.recon.var,
+    X.pred      = X.pred,
+    X.pred.var  = X.pred.var,
+    Y.pred.var  = Y.pred.var
+  ))
+}
+
+
+results.pure <- kalman(
+  A=matrix(1, nrow = 1, ncol = 1),
+  C=matrix(1, nrow = 1, ncol = 1),
+  X.var=matrix(0.01, nrow = 1, ncol = 1),
+  Y.var=matrix(0.005, nrow = 1, ncol = 1),
+  X0.pred=matrix(salinity[1], nrow = 1, ncol = 1),
+  X0.pred.var=matrix(var(salinity, na.rm = T), nrow = 1, ncol = 1),
+  Y=lapply(salinity, function(x) x),
+  verbose=c("missing")
+)
+
+```
+
+```{R}
+par_reset()
+plot(time, salinity, type = "l")
+lines(time, results.pure$X.pred[-(n+1)], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[800:900], salinity[800:900], type = "l")
+lines(time[800:900], results.pure$X.pred[800:900], col = "red")
+```
+
+#
+```{R}
+results.skipped <- kalman(
+  A=matrix(1, nrow = 1, ncol = 1),
+  C=matrix(1, nrow = 1, ncol = 1),
+  X.var=matrix(0.01, nrow = 1, ncol = 1),
+  Y.var=matrix(0.005, nrow = 1, ncol = 1),
+  X0.pred=matrix(salinity[1], nrow = 1, ncol = 1),
+  X0.pred.var=matrix(var(salinity, na.rm = T), nrow = 1, ncol = 1),
+  Y=lapply(salinity, function(x) x),
+  outlier_sd=6,
+  verbose=c("outlier")
+)
+```
+
+```{R}
+par_reset()
+plot(time, salinity, type = "l")
+lines(time, results.skipped$X.pred[-(n+1)], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[800:900], salinity[800:900], type = "l")
+lines(time[800:900], results.skipped$X.pred[800:900], col = "red")
+```
+
+#
+```{R}
+# TODO: Implement ML equation and then use some optimizer to find the best parameters
+```
+
+#
+```{R}
+
+```
