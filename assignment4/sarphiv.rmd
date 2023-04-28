@@ -194,8 +194,22 @@ lines(time, results.pure$X.pred[-(n+1)], col = "red")
 
 ```{R}
 par_reset()
-plot(time[800:900], salinity[800:900], type = "l")
-lines(time[800:900], results.pure$X.pred[800:900], col = "red")
+plot(time[800:950], salinity[800:950], type = "l")
+lines(time[800:950], results.pure$X.pred[800:950], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[800:950], (salinity[800:950] - vapply(results.pure$X.pred[800:950], function(x) x[1, 1], c(1))) / sqrt(vapply(results.pure$X.pred.var[800:950], function(x) x[1, 1], c(1))), type = "p")
+```
+
+```{R}
+print(results.pure$X.pred[[5000]])
+print(results.pure$X.recon[[5000]])
+print(results.pure$X.recon.var[[5000]])
+print(results.pure$X.pred[[5000]])
+print(results.pure$X.pred.var[[5000]])
+print(results.pure$Y.pred.var[[5000]])
 ```
 
 #
@@ -221,16 +235,138 @@ lines(time, results.skipped$X.pred[-(n+1)], col = "red")
 
 ```{R}
 par_reset()
-plot(time[800:900], salinity[800:900], type = "l")
-lines(time[800:900], results.skipped$X.pred[800:900], col = "red")
+plot(time[800:950], salinity[800:950], type = "l")
+lines(time[800:950], results.skipped$X.pred[800:950], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[800:950], (salinity[800:950] - vapply(results.skipped$X.pred[800:950], function(x) x[1, 1], c(1))) / sqrt(vapply(results.skipped$X.pred.var[800:950], function(x) x[1, 1], c(1))), type = "p")
+```
+
+```{R}
+print(results.skipped$X.pred[[5000]])
+print(results.skipped$X.recon[[5000]])
+print(results.skipped$X.recon.var[[5000]])
+print(results.skipped$X.pred[[5000]])
+print(results.skipped$X.pred.var[[5000]])
+print(results.skipped$Y.pred.var[[5000]])
 ```
 
 #
+
+## Non-parametric bootstrap of observation rounding
 ```{R}
-# TODO: Implement ML equation and then use some optimizer to find the best parameters
+obs <- runif(1000000)
+obs.round <- round(obs, 2)
+obs.error <- abs(obs - obs.round)
+
+par(mfrow = c(1, 2))
+hist(obs, breaks = 100, freq=F)
+hist(obs.error, breaks = 100, freq=F)
 ```
+
+Seems like the error is uniformly distributed between 0 and 0.005. 
+The lower bound is therefore 0.
+
+```{R}
+log.likelihood <- function(vars) {
+  # WARN: Assuming no observations are missing
+  A <- matrix(1, nrow = 1, ncol = 1)
+  C <- matrix(1, nrow = 1, ncol = 1)
+  Y.var <- matrix(vars[2], nrow = 1, ncol = 1)
+
+  results <- kalman(
+    A = A,
+    C = C,
+    X.var = matrix(vars[1], nrow = 1, ncol = 1),
+    Y.var = Y.var,
+    X0.pred = matrix(salinity[1], nrow = 1, ncol = 1),
+    X0.pred.var = matrix(var(salinity, na.rm = T), nrow = 1, ncol = 1),
+    Y = lapply(salinity[1:800], function(x) x)
+  )
+
+  R <- lapply(results$X.pred.var, function(x) C %*% x %*% t(C) + Y.var)
+  error <- lapply(1:800, function(i) salinity[i] - C %*% A %*% results$X.pred[[i]])
+  # NOTE: Swapped sign to maximize via optim, which minimizes
+  return(sum(vapply(1:800, function(i) log(det(R[[i]])) + t(error[[i]]) %*% solve(R[[i]]) %*% error[[i]], c(1))))
+}
+
+print(nlminb(c(0.01, 0.005), log.likelihood, lower=c(1e-10, 0.000000), upper=c(0.5, 0.5)))
+```
+
+```{R}
+log.likelihood <- Vectorize(function(X.var, Y.var) {
+  # WARN: Assuming no observations are missing
+  A <- matrix(1, nrow = 1, ncol = 1)
+  C <- matrix(1, nrow = 1, ncol = 1)
+  Y.var <- matrix(Y.var, nrow = 1, ncol = 1)
+
+  results <- kalman(
+    A = A,
+    C = C,
+    X.var = matrix(X.var, nrow = 1, ncol = 1),
+    Y.var = Y.var,
+    X0.pred = matrix(salinity[1], nrow = 1, ncol = 1),
+    X0.pred.var = matrix(var(salinity, na.rm = T), nrow = 1, ncol = 1),
+    Y = lapply(salinity[1:800], function(x) x)
+  )
+
+  R <- lapply(results$X.pred.var, function(x) C %*% x %*% t(C) + Y.var)
+  error <- lapply(1:800, function(i) salinity[i] - C %*% A %*% results$X.pred[[i]])
+  return(-sum(vapply(1:800, function(i) log(det(R[[i]])) + t(error[[i]]) %*% solve(R[[i]]) %*% error[[i]], c(1))))
+})
+
+par_reset()
+X.vars <- seq(1e-3, 5e-3, by = 0.001)
+Y.vars <- seq(0.000, 0.01, by=0.001)
+persp(X.vars, Y.vars, outer(X.vars, Y.vars, log.likelihood), theta = 45, phi = 30, expand = 0.5, col = "lightblue")
+```
+
+
+```{R}
+results.optimal <- kalman(
+  A=matrix(1, nrow = 1, ncol = 1),
+  C=matrix(1, nrow = 1, ncol = 1),
+  X.var=matrix(0.001886608, nrow = 1, ncol = 1),
+  Y.var=matrix(0.000, nrow = 1, ncol = 1),
+  X0.pred=matrix(salinity[1], nrow = 1, ncol = 1),
+  X0.pred.var=matrix(var(salinity, na.rm = T), nrow = 1, ncol = 1),
+  Y=lapply(salinity, function(x) x),
+  # outlier_sd = 6,
+  # verbose = c("outlier")
+)
+```
+
+```{R}
+par_reset()
+plot(time, salinity, type = "l")
+lines(time, results.optimal$X.pred[-(n+1)], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[800:950], salinity[800:950], type = "l")
+lines(time[800:950], results.optimal$X.pred[800:950], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[800:950], (salinity[800:950] - vapply(results.optimal$X.pred[800:950], function(x) x[1, 1], c(1))) / sqrt(vapply(results.optimal$X.pred.var[800:950], function(x) x[1, 1], c(1))), type = "p")
+```
+
+```{R}
+print(results.optimal$X.pred[[5000]])
+print(results.optimal$X.recon[[5000]])
+print(results.optimal$X.recon.var[[5000]])
+print(results.optimal$X.pred[[5000]])
+print(results.optimal$X.pred.var[[5000]])
+print(results.optimal$Y.pred.var[[5000]])
+```
+
 
 #
 ```{R}
 
 ```
+
