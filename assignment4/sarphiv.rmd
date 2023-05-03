@@ -220,12 +220,11 @@ plot(time[800:950], (salinity[800:950] - vapply(results.pure$X.pred[800:950], fu
 ```
 
 ```{R}
-print(results.pure$X.pred[[5000]])
 print(results.pure$X.recon[[5000]])
 print(results.pure$X.recon.var[[5000]])
-print(results.pure$X.pred[[5000]])
-print(results.pure$X.pred.var[[5000]])
-print(results.pure$Y.pred.var[[5000]])
+print(results.pure$X.pred[[5001]])
+print(results.pure$X.pred.var[[5001]])
+print(results.pure$Y.pred.var[[5001]])
 ```
 
 #
@@ -261,12 +260,11 @@ plot(time[800:950], (salinity[800:950] - vapply(results.skipped$X.pred[800:950],
 ```
 
 ```{R}
-print(results.skipped$X.pred[[5000]])
 print(results.skipped$X.recon[[5000]])
 print(results.skipped$X.recon.var[[5000]])
-print(results.skipped$X.pred[[5000]])
-print(results.skipped$X.pred.var[[5000]])
-print(results.skipped$Y.pred.var[[5000]])
+print(results.skipped$X.pred[[5001]])
+print(results.skipped$X.pred.var[[5001]])
+print(results.skipped$Y.pred.var[[5001]])
 ```
 
 #
@@ -275,15 +273,23 @@ print(results.skipped$Y.pred.var[[5000]])
 ```{R}
 obs <- runif(1000000)
 obs.round <- round(obs, 2)
-obs.error <- abs(obs - obs.round)
+obs.error <- obs.round - obs
 
 par(mfrow = c(1, 2))
-hist(obs, breaks = 100, freq=F)
-hist(obs.error, breaks = 100, freq=F)
+hist(obs, breaks = 100, main = "Histogram of original decimals", xlab = "Decimal")
+hist(obs.error, breaks = 100, main = "Histogram of error", xlab = "Error")
+
+print(var(obs.error))
+print(0.01^2 / 12)
+
+print(var(salinity[1:800]))
+print(var(diff(salinity[1:800])))
 ```
 
-Seems like the error is uniformly distributed between 0 and 0.005. 
+Seems like the error is uniformly distributed between -0.005 and 0.005. 
 The lower bound is therefore 0.
+
+A crude estimate of the system noise order of magnitude is also given.
 
 ```{R}
 log.likelihood <- function(vars) {
@@ -368,12 +374,11 @@ plot(time[800:950], (salinity[800:950] - vapply(results.optimal$X.pred[800:950],
 ```
 
 ```{R}
-print(results.optimal$X.pred[[5000]])
 print(results.optimal$X.recon[[5000]])
 print(results.optimal$X.recon.var[[5000]])
-print(results.optimal$X.pred[[5000]])
-print(results.optimal$X.pred.var[[5000]])
-print(results.optimal$Y.pred.var[[5000]])
+print(results.optimal$X.pred[[5001]])
+print(results.optimal$X.pred.var[[5001]])
+print(results.optimal$Y.pred.var[[5001]])
 ```
 
 
