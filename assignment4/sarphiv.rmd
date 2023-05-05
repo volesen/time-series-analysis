@@ -243,9 +243,25 @@ results.skipped <- kalman(
 ```
 
 ```{R}
+outlier.idx <- sort(unlist(keys(results.skipped$outlier.idx)))
+
 par_reset()
 plot(time, salinity, type = "l")
-lines(time, results.skipped$X.pred[-(n+1)], col = "red")
+for (i in outlier.idx) {
+  abline(v = time[i], col = "blue")
+}
+abline(v=time[is.na(salinity)], col="#00ff002c")
+lines(time, results.skipped$X.pred[-(n + 1)], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[-outlier.idx], salinity[-outlier.idx], type = "l")
+for (i in outlier.idx) {
+  abline(v = time[i], col = "blue")
+}
+abline(v=time[is.na(salinity)], col="#00ff002c")
+lines(time[-outlier.idx], results.skipped$X.pred[-(n + 1)][-outlier.idx], col = "red")
 ```
 
 ```{R}
