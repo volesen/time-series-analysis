@@ -1,0 +1,337 @@
+---
+title: Assignment 2
+author: Author1, Author2, Author3, Author4
+output:
+  bookdown::html_document2: default
+  bookdown::pdf_document2: default
+---
+```{r include = FALSE}
+# Disable inclusion of code chunks in the output
+knitr::opts_chunk$set(echo = FALSE)
+library("ggplot2")
+
+set.seed(1337)
+```
+
+
+# First
+
+## Stationary and non-invertible
+Roots of $\theta(z^-1)$ are around $0.412$ and $-1.212$. Not invertible.
+Root of $\phi(z^-1)$ is $4/5$. Stationary.
+
+## Two first central moments
+Because it is stationary, 
+the mean and autocovariance function must be invariant to absolute time.
+
+\begin{align*}
+  E( X_{t}) & =E( 0.8X_{t-1} +\epsilon _{t} +0.8\epsilon _{t-1} -0.5\epsilon _{t-2})\\
+  & =0.8E( X_{t-1})\\
+  & =0.8E( X_{t})\\
+  & =0
+\end{align*}
+
+
+From (Eq. 5.98)
+\begin{align*}
+  \gamma _{\epsilon X}( 0) & =\theta _{0} \sigma _{\epsilon }^{2}\\
+  \gamma _{\epsilon X}( 1) & =( \theta _{1} -\phi _{1} \theta _{0}) \sigma _{\epsilon }^{2}\\
+  & \\
+  \gamma _{\epsilon X}( 2) +\phi _{1} \gamma _{\epsilon X}( 1) & =\theta _{2} \sigma _{\epsilon }^{2}\\
+  \gamma _{\epsilon X}( 2) & =\theta _{2} \sigma _{\epsilon }^{2} -\phi _{1}( \theta _{1} -\phi _{1} \theta _{0}) \sigma _{\epsilon }^{2}\\
+  & =\left( \theta _{2} -\phi _{1} \theta _{1} +\phi _{1}^{2} \theta _{0}\right) \sigma _{\epsilon }^{2}
+\end{align*}
+
+From (Eq. 5.99), recall that $\displaystyle \gamma ( -1) =\gamma ( 1)$, since it is an even function.
+\begin{equation*}
+\begin{aligned}
+  \gamma ( k) +\phi _{1} \gamma ( k-1) & =\theta _{k} \gamma _{\epsilon X}( k) +\theta _{k+1} \gamma _{\epsilon X}( k+1) +\theta _{2} \gamma _{\epsilon X}( q-k)\\
+  & \\
+  \gamma ( 0) +\phi _{1} \gamma ( 1) & =\theta _{0} \gamma _{\epsilon X}( 0) +\theta _{1} \gamma _{\epsilon X}( 1) +\theta _{2} \gamma _{\epsilon X}( 2)\\
+  \gamma ( 1) +\phi _{1} \gamma ( 0) & =\theta _{1} \gamma _{\epsilon X}( 0) +\theta _{2} \gamma _{\epsilon X}( 1)\\
+  \gamma ( 2) +\phi _{1} \gamma ( 1) & =\theta _{2} \gamma _{\epsilon X}( 0)
+\end{aligned}
+\end{equation*}
+
+From (Eq. 5.101)
+\begin{align*}
+  \gamma ( 3) +\phi _{1} \gamma ( 2) & =0\\
+  \gamma ( k) & =-\phi _{1} \gamma ( k-1) ,\ \forall k\geqslant 3
+\end{align*}
+
+Solve for $\displaystyle 0\leqslant k\leqslant 2$ with Maple.
+```
+p1 := -0.8:
+q1 := 0.8:
+q2 := -0.5:
+
+s := 0.4^2:
+ye0 := s:
+ye1 := (q1 - p1)*s:
+ye2 := (q2 - p1*q1 + p1^2)*s:
+
+solve({
+  p1*y1 + y0 = q1*ye1 + q2*ye2 + ye0, 
+  p1*y0 + y1 = q1*ye0 + q2*ye1, 
+  p1*y1 + y2 = q2*ye0}, 
+  {y0, y1, y2}
+);
+```
+
+Which results in
+```
+{y0 = 0.8400000000, y1 = 0.6720000000, y2 = 0.4576000000}
+```
+
+
+## Simulation 10
+```{R}
+n_obs <- 200
+n_sim <- 10
+
+sigma <- 0.4
+
+phi <- c(-0.8)
+p <- length(phi)
+
+theta <- c(0.8, -0.5)
+q <- length(theta)
+
+X_sim <- replicate(n_sim, {
+  # Create noise
+  epsilon <- rnorm(n_obs + q, 0, sigma)
+
+  # Create vector for X
+  X <- rep(0, n_obs)
+
+  for (t in seq(2, n_obs)) {
+    X[t] <- -phi[1] * X[t - 1] + epsilon[t + q] + theta[1] * epsilon[t + q - 1] + theta[2] * epsilon[t + q - 2]
+  }
+
+  # Return X
+  X
+})
+
+
+# Plot all simulations
+# plot.ts(X_sim)
+# Plot all simulations
+
+sim_plot <- ggplot(mapping = aes(x = seq(1, n_obs))) +
+  labs(x = "Time", y = "X")
+
+for (i in seq(1, n_sim)) {
+  sim_plot <- local({
+    j <- i
+    sim_plot +
+      geom_line(aes(y = X_sim[, j]), stat = "identity", alpha = 0.9, col = j)
+      # + geom_point(aes(y = X_sim[, j]), stat = "identity", alpha = 0.3, col = j)
+  })
+}
+
+sim_plot
+```
+
+```{R}
+sim_plot <- ggplot(mapping = aes(x = seq(1, n_obs))) +
+  labs(x = "Time", y = "X")
+
+for (i in seq(1, 2)) {
+  sim_plot <- local({
+    j <- i
+    sim_plot +
+      geom_line(aes(y = X_sim[, j]), stat = "identity", alpha = 0.9, col = j) +
+      geom_point(aes(y = X_sim[, j]), stat = "identity", alpha = 0.3, col = j)
+  })
+}
+
+sim_plot
+```
+
+## ACF
+```{R}
+n_lag <- 40
+
+# Empirical ACF
+acf_matrix <- matrix(0, nrow = n_lag+1, ncol = n_sim)
+for (i in seq(1, n_sim)) {
+  acf_matrix[, i] <- acf(X_sim[, i], lag.max = n_lag, type = c("correlation"), plot = FALSE)$acf
+}
+
+# Theoretical ACF
+acf_theo <- rep(0, n_lag + 1)
+acf_theo[1] <- 0.84
+acf_theo[2] <- 0.672
+acf_theo[3] <- 0.4576
+for (k in seq(3, n_lag)) {
+  acf_theo[k + 1] <- -phi[1] * acf_theo[k]
+}
+
+acf_theo <- acf_theo / acf_theo[1]
+
+
+# Plot
+# NOTE: Significance level from 
+acf_sig_level <- qnorm((1 + 0.95) / 2) / sqrt(sum(!is.na(X_sim[, 1])))
+
+
+acf_plot <- ggplot(mapping = aes(x = seq(0, n_lag)))
+
+for (i in seq(1, n_sim)) {
+  acf_plot <- local({
+    j <- i
+    acf_plot +
+      geom_line(aes(y = acf_matrix[, j]), stat = "identity", alpha = 0.2, col = j) +
+      geom_point(aes(y = acf_matrix[, j]), stat = "identity", alpha = 0.3, col = j)
+  })
+}
+
+acf_plot <- acf_plot +
+  geom_hline(yintercept = acf_sig_level, linetype = "dotted") +
+  geom_hline(yintercept = -acf_sig_level, linetype = "dotted") + 
+  geom_line(aes(y = acf_theo), stat = "identity", color = "blue") +
+  geom_point(aes(y = acf_theo), stat = "identity", color = "blue") +
+  labs(title = "ACF", x = "Lag", y = "ACF")
+
+acf_plot
+```
+
+## PACF
+```{R}
+pacf_matrix <- matrix(0, nrow = n_lag, ncol = n_sim)
+for (i in seq(1, n_sim)) {
+  pacf_matrix[, i] <- pacf(X_sim[, i], lag.max = n_lag, type = c("correlation"), plot = FALSE)$acf
+}
+
+
+pacf_plot <- ggplot(mapping = aes(x = seq(1, n_lag)))
+
+for (i in seq(1, n_sim)) {
+  pacf_plot <- local({
+    j <- i
+    pacf_plot +
+      geom_line(aes(y = pacf_matrix[, j]), stat = "identity", col = j) +
+      geom_point(aes(y = pacf_matrix[, j]), stat = "identity", col = j)
+  })
+}
+
+pacf_plot <- pacf_plot +
+  geom_hline(yintercept = acf_sig_level, linetype = "dotted") +
+  geom_hline(yintercept = -acf_sig_level, linetype = "dotted") + 
+  labs(title = "PACF", x = "Lag", y = "PACF")
+
+pacf_plot
+```
+
+## Variance
+```{R}
+X_sim_var <- apply(X_sim, 2, var)
+
+# var_plot <- ggplot(mapping = aes(x = seq(1, n_sim), y = X_sim_var)) +
+#   geom_bar(stat = "identity", fill = 1:n_sim) +
+#   geom_hline(yintercept = 0.84, col = "blue") +
+#   geom_hline(yintercept = mean(X_sim_var), linetype = "dotted") +
+#   labs(title = "Variance", x = "Simulation", y = "Variance")
+
+# var_plot
+
+print(X_sim_var)
+print(mean(X_sim_var))
+print(0.84)
+```
+```
+
+
+## Discussion
+
+
+# Second
+## Prediction
+All the previous $X_i$ and $\epsilon_i$ are known for $i \leq t$, 
+and we want to predict $X_{t+1}$ and $X_{t+2}$. 
+
+The optimal prediction via (eq. 5.155) is the mean, 
+and the variance is purely determined by $\epsilon_{t+1}$, as everything else is known.
+Note that $d = 0$ so (eq. 5.155) is directly applicable.
+
+\begin{align*}
+  X_{t+1} &= -\phi_1 X_{t} - \phi_2 X_{t-1} - \phi_4 X_{t-3} - \phi_5 X_{t-4} - \phi_6 X_{t-5}\\
+    &+ \epsilon_{t+1} + \Theta_1 \epsilon_{t-3}\\
+\end{align*}
+
+
+The prediction can be found like before via (eq. 5.155). 
+The variance is found by taking the variance on both sides.
+There will be a contribution from $\hat{X}_{t+1}$, and $\epsilon_{t+2}$.
+
+\begin{align*}
+  \hat{X}_{t+2} &= -\phi_1 \hat{X}_{t+1} - \phi_2 X_{t} - \phi_4 X_{t-2} - \phi_5 X_{t-3} - \phi_6 X_{t-4}\\
+    &+ \epsilon_{t+2} + \Theta_1 \epsilon_{t-2}\\
+\end{align*}
+
+
+
+```{R}
+# Load A2_sales.txt data
+sales <- read.table("A2_sales.txt", header = TRUE, sep = " ")
+mu <- 2070
+sigma <- sqrt(36963)
+
+phi <- c(-1.04, 0.2, 0, -0.86, 1.04*0.86, -0.2*0.86)
+p <- length(phi)
+theta_4 <- -0.42
+
+# NOTE: Last entry is to simplify loop
+y_true <- c(rep(mu, p), sales$Sales, 999999999999999)
+# NOTE: Adding 1 for the t+1 prediction
+y_pred <- rep(0, length(sales$Sales) + p + 1)
+eps <- rep(0, length(sales$Sales) + p + 1)
+
+for (i in (p+1):length(y_pred)) {
+    y_pred[i] <- sum(-phi * rev(y_true[(i - p):(i - 1)]-mu)) + theta_4 * eps[i - 4] + mu
+    # NOTE: The last eps calculation is invalid as it makes use of unseen data.
+    eps[i] <- y_true[i] - y_pred[i]
+}
+
+
+# Make vectors valid again and make final predictions
+y_pred <- y_pred[(p+1):length(y_pred)]
+y_pred_var <- rep(sigma^2, length(y_pred))
+eps <- eps[(p+1):(length(eps)-1)]
+
+y_pred_2 <- sum(-phi * (c(tail(y_pred, n = 1), rev(tail(sales$Sales, n = p - 1))) - mu)) + theta_4 * eps[length(eps) - 2] + mu
+y_pred_2_var <- phi[1]^2 * sigma^2 + sigma^2
+
+y_pred <- c(y_pred, y_pred_2)
+y_pred_var <- c(y_pred_var, y_pred_2_var)
+
+y_pred_quantile <- qnorm(c(0.025, 0.975))
+y_pred_pred_upper <- y_pred + y_pred_quantile[2] * sqrt(y_pred_var)
+y_pred_pred_lower <- y_pred + y_pred_quantile[1] * sqrt(y_pred_var)
+```
+
+## Plotting
+```{r}
+pred_axis_seq <- seq(1, length(y_pred), 4)
+pred_axis <- c(sales$Quarter, "2019K1", "2019K2")[pred_axis_seq]
+y_pred_seq <- seq_along(y_pred)
+y_true_seq <- seq_along(sales$Sales)
+
+# Plot predictions and true values
+pred_plot <- ggplot() +
+  geom_vline(xintercept=length(y_pred)-2, alpha = 0.3, col = "red") +
+  geom_line(mapping = aes(x = y_pred_seq, y = y_pred), stat = "identity") +
+  geom_line(mapping = aes(x = tail(y_pred_seq, n = 2), y = tail(y_pred, n = 2)), stat = "identity", col = "cyan") +
+  geom_point(mapping = aes(x = y_pred_seq, y = y_pred), stat = "identity") +
+  geom_point(mapping = aes(x = tail(y_pred_seq, n = 1), y = tail(y_pred, n = 1)), stat = "identity", col = "cyan") +
+  geom_line(mapping = aes(x = y_pred_seq, y = y_pred_pred_upper), alpha = 0.5, linetype = "dashed", stat = "identity") +
+  geom_line(mapping = aes(x = y_pred_seq, y = y_pred_pred_lower), alpha = 0.5, linetype = "dashed", stat = "identity") +
+  geom_point(mapping = aes(x = y_true_seq, y = sales$Sales), col = "blue", stat = "identity") +
+  # Set labels
+  scale_x_continuous(breaks = pred_axis_seq, labels = pred_axis) +
+  labs(title = "Predictions", x = "Quarter", y = "Sales")
+
+pred_plot
+```
+
+# 3

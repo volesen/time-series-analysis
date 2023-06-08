@@ -1,0 +1,405 @@
+---
+title: Assignment 4
+author: sarphiv
+output:
+  bookdown::html_document2: default
+  bookdown::pdf_document2: default
+---
+```{r include = FALSE}
+# Disable inclusion of code chunks in the output
+knitr::opts_chunk$set(echo = FALSE)
+library("stats")
+library("dplyr")
+library("r2r")
+
+set.seed(1337)
+
+
+# Function to reset the default parameters
+par_defaults <- par(no.readonly = TRUE)
+par_reset <- function() {
+  par(par_defaults)
+}
+```
+
+```{R}
+# Load the data
+data <- read.csv("A4_Kulhuse.csv", header = TRUE, sep = ",")
+oxygen <- data$ODO
+salinity <- data$Sal
+time <- as.POSIXct(dplyr::pull(data, DateTime))
+time_rel <- as.numeric(as.POSIXct(dplyr::pull(data, DateTime)))
+time_rel <- (time_rel - time_rel[1])
+time_delta <- mean(diff(time_rel), na.rm = T)
+time_rel <- time_rel / time_delta
+
+# Length
+n <- length(time_rel)
+```
+
+#
+```{R}
+par(mfrow = c(2, 2))
+plot(time, oxygen, type='l')
+plot(time, salinity, type='l')
+plot(oxygen, salinity)
+boxplot(oxygen, salinity)
+```
+
+#
+Example 10.6 may be relevant for further detail.
+
+Assuming stationary dynamics. 
+$$
+X_t = X_{t-1} + \epsilon_t
+$$
+
+Must find variance of $\epsilon_t \sim \mathcal{N}(0, \sigma)$.
+
+It is assumed that the salinity is measured directly, but with independent measurement noise.
+$$
+Y_t = X_t + \eta_t
+$$
+
+According to section 10.1, the matrices are given as
+$$
+A = I\\
+B = 0\\
+C = I
+$$
+
+
+#
+```{R}
+kalman <- function(A, C, X.var, Y.var, X0.pred, X0.pred.var, Y, n.ahead=1, B=NULL, u=NULL, outlier.sd=NULL, outlier.idx=NULL, verbose=NULL) {
+  # NOTE: Implementation is according to theorem 10.2
+  #  Assuming stationary dynamics.
+
+  # Initialize state and variance variables
+  n <- length(Y) + n.ahead
+
+  X.dim <- dim(X0.pred)[1]
+  Y.dim <- dim(C)[1]
+
+  X.recon     <- lapply(1:n, function(x) rep(NA, X.dim))
+  X.recon.var <- lapply(1:n, function(x) matrix(NA, nrow = X.dim, ncol = X.dim))
+  
+  X.pred      <- lapply(1:n, function(x) rep(NA, X.dim))
+  X.pred.var  <- lapply(1:n, function(x) matrix(NA, nrow = X.dim, ncol=X.dim))
+
+  Y.pred.var  <- lapply(1:n, function(x) matrix(NA, nrow = Y.dim, ncol = Y.dim))
+
+
+  # Initialize optional arguments
+  if (is.null(u)) {
+    u <- matrix(0, nrow = 1, ncol = n)
+  }
+  if (is.null(B)) {
+    B <- matrix(0, nrow = X.dim, ncol = dim(u)[1])
+  }
+
+  # Outlier handling
+  if (is.null(outlier.idx)) {
+    outlier.idx <- hashset()
+  }
+
+  outlier.idx.detected <- hashset()
+
+
+  # Helper functions
+  recon.calc <- function(i) {
+    # If missing observation, set reconstruction to prediction
+    if (i > length(Y) || any(is.na(Y[[i]]))) {
+      X.recon[[i]] <<- X.pred[[i]]
+      X.recon.var[[i]] <<- X.pred.var[[i]]
+
+      if ("missing" %in% verbose) {
+        cat("Missing:", i, "\n")
+      }
+
+      return()
+    }
+
+
+    # Mahalanobis distance for outlier detection
+    Y.error <- abs(Y[[i]] - C %*% X.pred[[i]])
+    Y.error.sd <- sqrt((t(Y.error) %*% solve(Y.pred.var[[i]]) %*% Y.error) / Y.dim)
+
+    # Outlier and outlier_sd is set
+    outlier_sd_detected <- !is.null(outlier.sd) && (Y.error.sd > outlier.sd)
+    # Outlier index is marked
+    outlier_marked <- outlier.idx[[i]]
+    # If outlier, set reconstruction to prediction
+    if (outlier_sd_detected || outlier_marked) {
+      X.recon[[i]] <<- X.pred[[i]]
+      X.recon.var[[i]] <<- X.pred.var[[i]]
+
+      if (outlier_sd_detected) {
+        outlier.idx.detected[[i]] <<- TRUE
+      }
+
+      if ("outlier" %in% verbose) {
+        cat("Outlier:", i, "Sd:", Y.error.sd, "\n")
+      }
+    }
+    # Else, reconstruct
+    else {
+      K <- X.pred.var[[i]] %*% t(C) %*% solve(Y.pred.var[[i]])
+
+      X.recon[[i]] <<- X.pred[[i]] + K %*% (Y[[i]] - C %*% X.pred[[i]])
+      X.recon.var[[i]] <<- X.pred.var[[i]] - K %*% C %*% X.pred.var[[i]]
+    }
+
+  }
+
+  pred.calc <- function(i) {
+    X.pred[[i]] <<- A %*% X.recon[[i-1]] + B %*% u[[i-1]]
+    X.pred.var[[i]] <<- A %*% X.recon.var[[i-1]] %*% t(A) + X.var
+    Y.pred.var[[i]] <<- C %*% X.pred.var[[i]] %*% t(C) + Y.var
+  }
+
+
+  # NOTE: Initial predictions set according to theorem 10.2.
+  #  Not setting reconstruction directly as in lecture notes,
+  #  as it would not incorporate dynamics and the first observation.
+  X.pred[[1]] <- X0.pred
+  X.pred.var[[1]] <- X0.pred.var
+
+  Y.pred.var[[1]] <- C %*% X.pred.var[[1]] %*% t(C) + Y.var
+
+  # Initial reconstruction
+  recon.calc(1)
+
+
+  # Kalman filter iterative implementation of recursion
+  for (i in 2:n) {
+    pred.calc(i)
+    recon.calc(i)
+  }
+
+
+  # Return reconstructed and predicted values
+  return(list(
+    X.recon     = X.recon,
+    X.recon.var = X.recon.var,
+    X.pred      = X.pred,
+    X.pred.var  = X.pred.var,
+    Y.pred.var  = Y.pred.var,
+    outlier.idx = outlier.idx.detected
+  ))
+}
+
+
+results.pure <- kalman(
+  A=matrix(1, nrow = 1, ncol = 1),
+  C=matrix(1, nrow = 1, ncol = 1),
+  X.var=matrix(0.01, nrow = 1, ncol = 1),
+  Y.var=matrix(0.005, nrow = 1, ncol = 1),
+  X0.pred=matrix(salinity[1], nrow = 1, ncol = 1),
+  X0.pred.var=matrix(var(salinity, na.rm = T), nrow = 1, ncol = 1),
+  Y = as.list(salinity)
+)
+
+```
+
+```{R}
+par_reset()
+plot(time, salinity, type = "l")
+lines(time, results.pure$X.pred[-(n+1)], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[800:950], salinity[800:950], type = "l")
+lines(time[800:950], results.pure$X.pred[800:950], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[800:950], (salinity[800:950] - vapply(results.pure$X.pred[800:950], function(x) x[1, 1], c(1))) / sqrt(vapply(results.pure$X.pred.var[800:950], function(x) x[1, 1], c(1))), type = "p")
+```
+
+```{R}
+print(results.pure$X.recon[[5000]])
+print(results.pure$X.recon.var[[5000]])
+print(results.pure$X.pred[[5001]])
+print(results.pure$X.pred.var[[5001]])
+print(results.pure$Y.pred.var[[5001]])
+```
+
+#
+```{R}
+results.skipped <- kalman(
+  A=matrix(1, nrow = 1, ncol = 1),
+  C=matrix(1, nrow = 1, ncol = 1),
+  X.var=matrix(0.01, nrow = 1, ncol = 1),
+  Y.var=matrix(0.005, nrow = 1, ncol = 1),
+  X0.pred=matrix(salinity[1], nrow = 1, ncol = 1),
+  X0.pred.var=matrix(var(salinity, na.rm = T), nrow = 1, ncol = 1),
+  Y=as.list(salinity),
+  outlier.sd=6,
+  verbose=c("outlier")
+)
+```
+
+```{R}
+outlier.idx <- sort(unlist(keys(results.skipped$outlier.idx)))
+
+par_reset()
+plot(time, salinity, type = "l")
+for (i in outlier.idx) {
+  abline(v = time[i], col = "blue")
+}
+abline(v=time[is.na(salinity)], col="#00ff002c")
+lines(time, results.skipped$X.pred[-(n + 1)], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[-outlier.idx], salinity[-outlier.idx], type = "l")
+for (i in outlier.idx) {
+  abline(v = time[i], col = "blue")
+}
+abline(v=time[is.na(salinity)], col="#00ff002c")
+lines(time[-outlier.idx], results.skipped$X.pred[-(n + 1)][-outlier.idx], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[800:950], salinity[800:950], type = "l")
+lines(time[800:950], results.skipped$X.pred[800:950], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[800:950], (salinity[800:950] - vapply(results.skipped$X.pred[800:950], function(x) x[1, 1], c(1))) / sqrt(vapply(results.skipped$X.pred.var[800:950], function(x) x[1, 1], c(1))), type = "p")
+```
+
+```{R}
+print(results.skipped$X.recon[[5000]])
+print(results.skipped$X.recon.var[[5000]])
+print(results.skipped$X.pred[[5001]])
+print(results.skipped$X.pred.var[[5001]])
+print(results.skipped$Y.pred.var[[5001]])
+```
+
+#
+
+## Non-parametric bootstrap of observation rounding
+```{R}
+obs <- runif(1000000)
+obs.round <- round(obs, 2)
+obs.error <- obs.round - obs
+
+par(mfrow = c(1, 2))
+hist(obs, breaks = 100, main = "Histogram of original decimals", xlab = "Decimal")
+hist(obs.error, breaks = 100, main = "Histogram of error", xlab = "Error")
+
+print(var(obs.error))
+print(0.01^2 / 12)
+
+print(var(salinity[1:800]))
+print(var(diff(salinity[1:800])))
+```
+
+Seems like the error is uniformly distributed between -0.005 and 0.005. 
+The lower bound is therefore 0.
+
+A crude estimate of the system noise order of magnitude is also given.
+
+```{R}
+log.likelihood <- function(vars) {
+  # WARN: Assuming no observations are missing
+  A <- matrix(1, nrow = 1, ncol = 1)
+  C <- matrix(1, nrow = 1, ncol = 1)
+  Y.var <- matrix(exp(vars[2]), nrow = 1, ncol = 1)
+
+  results <- kalman(
+    A = A,
+    C = C,
+    X.var = matrix(exp(vars[1]), nrow = 1, ncol = 1),
+    Y.var = Y.var,
+    X0.pred = matrix(salinity[1], nrow = 1, ncol = 1),
+    X0.pred.var = matrix(var(salinity, na.rm = T), nrow = 1, ncol = 1),
+    Y = as.list(salinity[1:800]),
+    n.ahead = 0,
+    outlier.idx = results.skipped$outlier.idx,
+    verbose = c("outlier", "missing")
+  )
+
+  # Implementation according to book
+  # R <- lapply(results$X.pred.var, function(x) C %*% x %*% t(C) + Y.var)
+  # # NOTE: Using 801 observations, since filtering with 1:800, but log likelihood with 2:801
+  # error <- lapply(1:800, function(i) salinity[i+1] - C %*% A %*% results$X.recon[[i]])
+  # # NOTE: Swapped sign to maximize via optim, which minimizes
+  # return(sum(vapply(1:799, function(i) log(det(R[[i+1]])) + t(error[[i]]) %*% solve(R[[i+1]]) %*% error[[i]], c(1))))
+
+
+  # Implementation according to slides
+  # error <- lapply(1:799, function(i) salinity[i+1] - C %*% A %*% results$X.recon[[i]])
+  # NOTE: Swapped sign to maximize via optim, which minimizes
+  # return(sum(vapply(2:800, function(i) log(det(results$Y.pred.var[[i]])) + t(error[[i-1]]) %*% solve(results$Y.pred.var[[i]]) %*% error[[i-1]], c(1))))
+
+
+  # Implementation simplified
+  error <- lapply(1:800, function(i) salinity[i] - C %*% results$X.pred[[i]])
+  # NOTE: Swapped sign to maximize via optim, which minimizes
+  return(sum(vapply(1:800, function(i) log(det(results$Y.pred.var[[i]])) + t(error[[i]]) %*% solve(results$Y.pred.var[[i]]) %*% error[[i]], c(1))))
+}
+
+# print(nlminb(c(log(0.01), log(0.01)), log.likelihood))
+# print(nlm(log.likelihood, c(log(0.01), log(0.01))))
+# print(optim(c(log(0.01), log(0.01)), log.likelihood, control = list(trace = 1, REPORT = 1)))
+optim.results <- optim(c(log(0.01), log(0.01)), log.likelihood, method = "SANN", control = list(maxit = 1000, tmax = 10, trace = 1, REPORT = 10))
+
+print(optim.results$par)
+print(exp(optim.results$par))
+print(optim.results$value)
+```
+
+
+```{R}
+results.optimal <- kalman(
+  A=matrix(1, nrow = 1, ncol = 1),
+  C=matrix(1, nrow = 1, ncol = 1),
+  X.var=matrix(exp(optim.results$par[1]), nrow = 1, ncol = 1),
+  Y.var=matrix(exp(optim.results$par[2]), nrow = 1, ncol = 1),
+  X0.pred=matrix(salinity[1], nrow = 1, ncol = 1),
+  X0.pred.var=matrix(var(salinity, na.rm = T), nrow = 1, ncol = 1),
+  Y=as.list(salinity),
+  outlier.idx = results.skipped$outlier.idx,
+  verbose = c("outlier")
+)
+```
+
+```{R}
+par_reset()
+plot(time, salinity, type = "l")
+lines(time, results.optimal$X.pred[-(n+1)], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[800:950], salinity[800:950], type = "l")
+lines(time[800:950], results.optimal$X.pred[800:950], col = "red")
+```
+
+```{R}
+par_reset()
+plot(time[800:950], (salinity[800:950] - vapply(results.optimal$X.pred[800:950], function(x) x[1, 1], c(1))) / sqrt(vapply(results.optimal$X.pred.var[800:950], function(x) x[1, 1], c(1))), type = "p")
+```
+
+```{R}
+print(results.optimal$X.recon[[5000]])
+print(results.optimal$X.recon.var[[5000]])
+print(results.optimal$X.pred[[5001]])
+print(results.optimal$X.pred.var[[5001]])
+print(results.optimal$Y.pred.var[[5001]])
+```
+
+
+#
+```{R}
+
+```
+
