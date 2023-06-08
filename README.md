@@ -5,5 +5,5 @@ See the course [webpage](https://kurser.dtu.dk/course/02417) for further informa
 The repository contains all the data, R codes/Python scripts, and reports for each assignment.
 
 # Authors
-Vincent Olesen, Lauge Hermansen, Tymoteusz Barciński
+Vincent Olesen, Lauge Hermansen, Tymoteusz Barciński, sarphiv (Anonymized)
 
