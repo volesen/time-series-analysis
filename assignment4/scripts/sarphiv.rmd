@@ -240,11 +240,11 @@ results.skipped <- kalman(
   outlier.sd=6,
   verbose=c("outlier")
 )
+
+outlier.idx <- sort(unlist(keys(results.skipped$outlier.idx)))
 ```
 
 ```{R}
-outlier.idx <- sort(unlist(keys(results.skipped$outlier.idx)))
-
 par_reset()
 plot(time, salinity, type = "l")
 for (i in outlier.idx) {
